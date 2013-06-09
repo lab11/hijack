@@ -1,9 +1,9 @@
-package umich.framjack.core;
+package umich.hijack.core;
 
 // A class object for a Jackit packet.
 
 public class Packet {
-	
+
 	public int length;           // Length of the data payload
 	public boolean ackRequested; // Set to true if the sender of this packet
 	                             // requests an ack be sent.
@@ -14,9 +14,9 @@ public class Packet {
 	public int sentCount;        // The number of times this packet has been
 	                             // sent.
 	public int typeId;           // The ID of the functional use of the packet
-	public int[] data;           // The packet payload	
+	public int[] data;           // The packet payload
 
-	
+
 	public final static int PKT_TYPE_OFFSET = 0;
 	public final static int PKT_TYPE_MASK = 0xF;
 	public final static int PKT_RETRIES_OFFSET = 4;

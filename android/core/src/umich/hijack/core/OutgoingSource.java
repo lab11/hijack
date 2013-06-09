@@ -15,8 +15,11 @@
  *  along with hijack-infinity.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-package umich.framjack.core;
+package umich.hijack.core;
 
-public interface OnBytesAvailableListener {
-	public abstract void onBytesAvailable(int count);
+public interface OutgoingSource {
+	// Returns a 1 (true) or 0 (false) to indicate
+	// what the next value the audio system should output
+	// should be.
+	boolean getNextBit();
 }

@@ -15,8 +15,8 @@
  *  along with hijack-infinity.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-package umich.framjack.core;
+package umich.hijack.core;
 
-public interface OnByteSentListener {
-	public abstract void onByteSent();
+public interface OnBytesAvailableListener {
+	public abstract void onBytesAvailable(int count);
 }

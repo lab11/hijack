@@ -15,66 +15,66 @@
  *  along with hijack-infinity.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-package umich.framjack.core;
+package umich.hijack.core;
 
 import java.util.ArrayList;
 import java.util.List;
 
 public class SerialDecoder {
-	private AudioReceiver _audioReceiver;
-	
+	private final AudioReceiver _audioReceiver;
+
 	private enum TransmitState { IDLE, PENDING, DATA };
 	private enum ReceiveState { IDLE, DATA, DATANEXT };
-	
+
 	// Receiver State
 	private int _lastEdgeLength = 0;
-	
+
 	private int _currentEdgeLength = 0;
 	private boolean _currentEdgeHigh = false;
-	
+
 	//TODO: REFACTOR THIS OUT
 	private int _ioBaseFrequency = 613;
-	
+
 	private int _threshold = 7;
-	
+
 	// FOR THE MSP430FR5969:
 	//private int _threshold = 7;
-	
+
 	// FOR THE MSP430F1611:
 	//private int _threshold = 12;
-	
+
 	private int _deltaT = 0;
-	
+
 	private ReceiveState _rxState = ReceiveState.IDLE;
-	
+
 	private int _rxByte = 0;
 	private int _rxBits = 0;
-	
+
 	// Transmit State
 	private TransmitState _txState = TransmitState.IDLE;
 	private int _txByte = 0;
 	private int _txBytePosition = 0;
 	private int _txBitPosition;
 
-	private int _idleCycles = 20;
+	private final int _idleCycles = 20;
 	private int _idleCycleCount = 0;
-	
+
 	// Byte Buffers
-	private List<Integer> _incoming = new ArrayList<Integer>();
-	private List<Integer> _outgoing = new ArrayList<Integer>();
-	
+	private final List<Integer> _incoming = new ArrayList<Integer>();
+	private final List<Integer> _outgoing = new ArrayList<Integer>();
+
 	// Listeners for byte sent + byte received events
 	private OnBytesAvailableListener _bytesAvailableListener = null;
 	private OnByteSentListener _byteSentListener = null;
 
-	
+
 	//////////////////////////////
 	// Transmit State Machine
 	/////////////////////////////
 	private boolean transmitIdle() {
 		return _txBitPosition == 1;
 	}
-	
+
 	private boolean transmitPending() {
 		if (_txBitPosition == 0) {
 			_txState = TransmitState.DATA;
@@ -83,16 +83,16 @@ public class SerialDecoder {
 			return true;
 		}
 	}
-	
+
 	private boolean transmitData() {
 		boolean ret = ((_txByte >> _txBytePosition) & 0x1) == 1;
-		
+
 		if (_txBitPosition == 1) {
 			_txBytePosition++;
-			
+
 			if (_txBytePosition == 10) {
 
-				synchronized(this) {	
+				synchronized(this) {
 					_idleCycleCount = 0;
 					_txState = TransmitState.IDLE;
 					_txBytePosition = 0;
@@ -103,10 +103,10 @@ public class SerialDecoder {
 		else {
 			ret = !ret;
 		}
-		
+
 		return ret;
 	}
-	
+
 	/////////////////////////////
 	// Receive State Machine
 	/////////////////////////////
@@ -114,16 +114,16 @@ public class SerialDecoder {
 		if (_currentEdgeHigh == true &&
 				isWithinThreshold(_currentEdgeLength,
 						_lastEdgeLength * 2)) {
-			
+
 			_deltaT = _lastEdgeLength;
-			
+
 			_rxState = ReceiveState.DATA;
-			
+
 			_rxByte = 0;
 			_rxBits = 1;
 		}
 	}
-	
+
 	private void receiveData() {
 		if (isWithinThreshold(_currentEdgeLength, _deltaT)) {
 			_rxState = ReceiveState.DATANEXT;
@@ -141,13 +141,13 @@ public class SerialDecoder {
 			_rxState = ReceiveState.IDLE;
 		}
 	}
-	
+
 	private void receiveDataNext() {
 		if (isWithinThreshold(_currentEdgeLength, _deltaT)) {
 			if (((_rxByte >> (_rxBits - 1)) & 1) == 1) {
 				_rxByte |= (1 << _rxBits);
 			}
-			
+
 			_rxBits++;
 			advanceReceiveDataState();
 		}
@@ -161,33 +161,33 @@ public class SerialDecoder {
 	/////////////////////////////
 	// Public Functions
 	/////////////////////////////
-	
+
 	public SerialDecoder() {
 		_audioReceiver = new AudioReceiver();
 		_audioReceiver.registerIncomingSink(_incomingSink);
-		_audioReceiver.registerOutgoingSource(_outgoingSink);		
+		_audioReceiver.registerOutgoingSource(_outgoingSink);
 	}
-	
+
 	public void start() {
-		_audioReceiver.startAudioIO();		
+		_audioReceiver.startAudioIO();
 	}
-	
+
 	public void stop() {
 		_audioReceiver.stopAudioIO();
 	}
-	
+
 	public void sendByte(int val) {
 		synchronized(this) {
 			_outgoing.add(val);
 		}
 	}
-	
+
 	public int bytesAvailable() {
 		synchronized(this) {
 			return _incoming.size();
 		}
 	}
-	
+
 	public int readByte() {
 		synchronized(this) {
 			if (_incoming.size() == 0) {
@@ -198,63 +198,63 @@ public class SerialDecoder {
 			return ret;
 		}
 	}
-	
+
 	public void setPowerFreq(int freq) {
 		_audioReceiver.setPowerFrequency(freq);
 	}
-	
+
 	public void setIoFrq(int freq) {
 		_ioBaseFrequency = freq;
-		
+
 		//TODO: STOP HARDCODING THIS FREQ
 		_threshold = (int) (22050 / _ioBaseFrequency / 2 * 0.45);
-		
+
 		_audioReceiver.setTransmitFrequency(freq);
 	}
-	
+
 	/////////////////////////////
 	// Listener Functions
 	/////////////////////////////
 	// WARNING: These are not thread-safe. We are using a
 	// guarantee by AudioInterface that events will occur
 	// sequentially and originate from a single thread.
-	
+
 	public void registerBytesAvailableListener(OnBytesAvailableListener _listener) {
 		_bytesAvailableListener = _listener;
 	}
-	
+
 	public void registerByteSentListener(OnByteSentListener _listener) {
 		_byteSentListener = _listener;
 	}
-	
+
 	private void notifyBytesAvailable(int numberBytes) {
 		if (_bytesAvailableListener != null) {
 			_bytesAvailableListener.onBytesAvailable(numberBytes);
 		}
 	}
-	
+
 	private void notifyByteSent() {
 		if (_byteSentListener != null) {
 			_byteSentListener.onByteSent();
 		}
 	}
-	
+
 	/////////////////////////////
 	// Helper Functions
 	/////////////////////////////
-	
+
 	private boolean isWithinThreshold(int value, int desired) {
 		return value < desired + _threshold && value > desired - _threshold;
 	}
-	
+
 	private byte calcParity(int in) {
 		byte parity = 0;
 		for (int i = 0; i < 8; i++) {
 			parity ^= ((in >> i) & 1);
-		}	
+		}
 		return parity;
 	}
-	
+
 	private void advanceReceiveDataState() {
 		if (_rxBits == 10) {
 			if (calcParity(_rxByte >> 1) ==  (_rxByte >> 9)) {
@@ -277,8 +277,9 @@ public class SerialDecoder {
 	/////////////////////////////
 	// AudioInterface Listeners
 	////////////////////////////
-	
-	private IncomingSink _incomingSink = new IncomingSink() {
+
+	private final IncomingSink _incomingSink = new IncomingSink() {
+		@Override
 		public void handleNextBit(int transistionPeriod, boolean isHighToLow) {
 			//isHighToLow = !isHighToLow;
 			//System.out.println("Tran: " + transistionPeriod + " HL: " + isHighToLow);
@@ -300,8 +301,9 @@ public class SerialDecoder {
 			_lastEdgeLength = _currentEdgeLength;
 		}
 	};
-	
-	private OutgoingSource _outgoingSink = new OutgoingSource() {
+
+	private final OutgoingSource _outgoingSink = new OutgoingSource() {
+		@Override
 		public boolean getNextBit() {
 			boolean ret = false;
 			switch (_txState) {
@@ -312,18 +314,18 @@ public class SerialDecoder {
 				if(_idleCycleCount < _idleCycles) {
 					_idleCycleCount++;
 				}
-				
+
 				synchronized(SerialDecoder.this) {
 					if (_outgoing.size() > 0 && _idleCycleCount == _idleCycles) {
 						int byteToSend = _outgoing.get(0);
 						_outgoing.remove(0);
-						
+
 						int parity = calcParity(byteToSend);
 						_txByte = (byteToSend << 1) | (parity << 9);
 						_txState = TransmitState.PENDING;
 					}
 				}
-				
+
 				ret = transmitIdle();
 				break;
 			case PENDING:
@@ -333,7 +335,7 @@ public class SerialDecoder {
 				break;
 			}
 			_txBitPosition = _txBitPosition == 0 ? 1 : 0;
-			
+
 			return ret;
 		}
 	};

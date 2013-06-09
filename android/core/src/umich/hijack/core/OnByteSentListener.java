@@ -15,11 +15,8 @@
  *  along with hijack-infinity.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-package umich.framjack.core;
+package umich.hijack.core;
 
-public interface IncomingSink {
-	// Called with the period between the last frequency
-	// shift and the current one, and what type of transistion
-	// it was (HIGH TO LOW or LOW TO HIGH).
-	void handleNextBit(int transistionPeriod, boolean isHighToLow);
+public interface OnByteSentListener {
+	public abstract void onByteSent();
 }

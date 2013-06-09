@@ -15,7 +15,7 @@
  *  along with hijack-infinity.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-package umich.framjack.core;
+package umich.hijack.core;
 
 import java.util.ArrayList;
 

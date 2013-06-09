@@ -1,4 +1,4 @@
-package umich.framjack.apps.ontimefreqsweep;
+package umich.hijack.apps.ontimefreqsweep;
 
 import java.io.BufferedWriter;
 import java.io.File;
@@ -7,13 +7,13 @@ import java.io.IOException;
 import java.text.SimpleDateFormat;
 import java.util.Date;
 
-import umich.framjack.core.OnByteSentListener;
-import umich.framjack.core.OnBytesAvailableListener;
-import umich.framjack.core.Packet;
-import umich.framjack.core.PacketDispatch;
-import umich.framjack.core.PacketDispatch.IncomingPacketListener;
-import umich.framjack.core.PacketDispatch.OutgoingByteListener;
-import umich.framjack.core.SerialDecoder;
+import umich.hijack.core.OnByteSentListener;
+import umich.hijack.core.OnBytesAvailableListener;
+import umich.hijack.core.Packet;
+import umich.hijack.core.PacketDispatch;
+import umich.hijack.core.PacketDispatch.IncomingPacketListener;
+import umich.hijack.core.PacketDispatch.OutgoingByteListener;
+import umich.hijack.core.SerialDecoder;
 import android.app.Activity;
 import android.os.Bundle;
 import android.view.Menu;

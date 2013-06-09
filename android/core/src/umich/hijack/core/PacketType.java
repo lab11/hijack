@@ -1,4 +1,4 @@
-package umich.framjack.core;
+package umich.hijack.core;
 
 public enum PacketType {
 	DATA,   // General data type packet
