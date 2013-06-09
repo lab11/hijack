@@ -34,7 +34,7 @@
 		<link>
 			<name>corelib</name>
 			<type>2</type>
-			<locationURI>$%7BPARENT-1-PROJECT_LOC%7D/core-lib/src</locationURI>
+			<locationURI>$%7BPARENT-2-PROJECT_LOC%7D/core/src</locationURI>
 		</link>
 	</linkedResources>
 </projectDescription>
