@@ -13,7 +13,16 @@ public class Packet {
 	                             // transmitted.
 	public int sentCount;        // The number of times this packet has been
 	                             // sent.
-	public PacketType type;      // The functional use of the packet
+	public int typeId;           // The ID of the functional use of the packet
 	public int[] data;           // The packet payload	
 
+	
+	public final static int PKT_TYPE_OFFSET = 0;
+	public final static int PKT_TYPE_MASK = 0xF;
+	public final static int PKT_RETRIES_OFFSET = 4;
+	public final static int PKT_RETRIES_MASK = 0x3 << 4;
+	public final static int PKT_ACKREQ_OFFSET = 6;
+	public final static int PKT_ACKREQ_MASK = 0x1 << 6;
+	public final static int PKT_POWERDOWN_OFFSET = 7;
+	public final static int PKT_POWERDOWN_MASK = 0x1 << 7;
 }

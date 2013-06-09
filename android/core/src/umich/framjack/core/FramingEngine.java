@@ -20,12 +20,15 @@ package umich.framjack.core;
 import java.util.ArrayList;
 
 public class FramingEngine {
-	private IncomingPacketListener _incomingListener;
+	private ArrayList<ArrayList<IncomingPacketListener>> incomingListeners;
+	//private IncomingPacketListener _incomingListener;
 	private OutgoingByteListener _outgoingListener;
 	
-	private final int _receiveMax = 18;
-	private final int START_BYTE = 0xCC;
-	private final int ESCAPE_BYTE = 0xDC;
+	private final static int _receiveMax = 18;
+	private final static int START_BYTE = 0xCC;
+	private final static int ESCAPE_BYTE = 0xDC;
+	
+	private final static int MAX_PACKET_TYPES = 16;
 	
 	private enum ReceiveState {START, HEADER1, HEADER2, DATA, DATA_ESCAPE};
 	private ReceiveState _receiveState = ReceiveState.START;
@@ -38,6 +41,12 @@ public class FramingEngine {
 	public FramingEngine() {
 		_receiveBuffer = new ArrayList<Integer>();
 		_transmitBuffer = new ArrayList<Integer>();
+		
+		// Create the data structure for callbacks
+		incomingListeners = new ArrayList<ArrayList<IncomingPacketListener>>(MAX_PACKET_TYPES);
+		for (int i=0; i<MAX_PACKET_TYPES; i++) {
+			incomingListeners.add(new ArrayList<IncomingPacketListener>());
+		}
 	}
 	
 	public void receiveByte(int val) {
@@ -62,7 +71,7 @@ public class FramingEngine {
 				_receiveBuffer.add(val);
 				if (_receiveBuffer.size() == dataLength) {
 					// Got all the bytes for the payload
-					checkPacket();
+					processPacket();
 					_receiveState = ReceiveState.START;
 				}
 				break;
@@ -70,7 +79,7 @@ public class FramingEngine {
 				_receiveState = ReceiveState.DATA;
 				_receiveBuffer.add(val);
 				if (_receiveBuffer.size() == dataLength) {
-					checkPacket();
+					processPacket();
 					_receiveState = ReceiveState.START;
 				}
 				break;
@@ -93,26 +102,55 @@ public class FramingEngine {
 		}
 	}
 	
-	private void checkPacket() {
-		int sum = 0;
+	private void processPacket() {
+		// Verify the checksum is correct
+		int sum = headerMeta;
 		for (int i = 0; i < _receiveBuffer.size() - 1; i++) {
 			//System.out.print(Integer.toHexString(_receiveBuffer.get(i)) + " ");
 			sum += _receiveBuffer.get(i);
 		}
 		//System.out.println(Integer.toHexString(_receiveBuffer.get(_receiveBuffer.size() - 1)));
-		
 		if ((sum & 0xFF) == _receiveBuffer.get(_receiveBuffer.size() - 1)) {
-			int[] retArray = new int[_receiveBuffer.size() - 1];
-			for (int i = 0; i < _receiveBuffer.size() - 1; i++) {
-				retArray[i] = _receiveBuffer.get(i);
+			System.out.println("Received packet with failed checksum.");
+			return;
+		}
+		
+		// Create a new packet and fill in the header and data fields.
+		Packet P = new Packet();
+		P.length = _receiveBuffer.size() - 1;
+		P.ackRequested = ((headerMeta & Packet.PKT_ACKREQ_MASK) >> Packet.PKT_ACKREQ_OFFSET) != 0;
+		P.powerDown = ((headerMeta & Packet.PKT_POWERDOWN_MASK) >> Packet.PKT_POWERDOWN_OFFSET) != 0;
+		P.sentCount = ((headerMeta & Packet.PKT_RETRIES_MASK) >> Packet.PKT_RETRIES_OFFSET) + 1;
+		P.typeId = ((headerMeta & Packet.PKT_TYPE_MASK) >> Packet.PKT_TYPE_OFFSET);
+		P.data = new int[P.length];
+		for (int i = 0; i < P.length; i++) {
+			P.data[i] = _receiveBuffer.get(i);
+		}
+		
+		// Send to other layers
+		
+		// Check if there is at least one listener for this incoming packet
+		if (incomingListeners.get(P.typeId).size() > 0) {
+			for (int i=0; i<incomingListeners.get(P.typeId).size(); i++) {
+				incomingListeners.get(P.typeId).get(i).IncomingPacketReceive(P);
 			}
-			_incomingListener.IncomingPacketReceive(retArray);
-		}		
+		} else {
+			// No listener registered for this packet
+			for (int i=0; i<incomingListeners.get(0).size(); i++) {
+				incomingListeners.get(0).get(i).IncomingPacketReceive(P);
+			}
+		}
+		
+		// Send all packets to all listeners on 1
+		for (int i=0; i<incomingListeners.get(1).size(); i++) {
+			incomingListeners.get(1).get(i).IncomingPacketReceive(P);
+		}
+		
 	}
 	
 	public void transmitByte(int val) {
-		if (val == 0xCC) {
-			_transmitBuffer.add(0xDD);
+		if (val == START_BYTE) {
+			_transmitBuffer.add(ESCAPE_BYTE);
 		}
 		_transmitBuffer.add(val);
 	}
@@ -131,8 +169,16 @@ public class FramingEngine {
 		_outgoingListener.OutgoingByteTransmit(toSend);
 	}
 	
-	public void registerIncomingPacketListener(IncomingPacketListener listener) {
-		_incomingListener = listener;
+	// Register a callback handler for a particular packet type. Each packet
+	// type can have multiple handlers in case multiple services want to know
+	// about a given packet type.
+	public void registerIncomingPacketListener(IncomingPacketListener listener, int packetTypeID) {
+		if (packetTypeID < 0 ||  packetTypeID > MAX_PACKET_TYPES) {
+			// throw an exception?
+			System.out.println("Registering incoming listener: Bad packet type ID.");
+			return;
+		}
+		incomingListeners.get(packetTypeID).add(listener);
 	}
 	
 	public void registerOutgoingByteListener(OutgoingByteListener listener) {
@@ -140,7 +186,7 @@ public class FramingEngine {
 	}
 	
 	public interface IncomingPacketListener {
-		public abstract void IncomingPacketReceive(int[] packet);
+		public abstract void IncomingPacketReceive(Packet packet);
 	}
 	
 	public interface OutgoingByteListener {
