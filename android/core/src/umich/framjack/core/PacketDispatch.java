@@ -19,36 +19,36 @@ package umich.framjack.core;
 
 import java.util.ArrayList;
 
-public class FramingEngine {
-	private ArrayList<ArrayList<IncomingPacketListener>> incomingListeners;
+public class PacketDispatch {
+	private final ArrayList<ArrayList<IncomingPacketListener>> incomingListeners;
 	//private IncomingPacketListener _incomingListener;
 	private OutgoingByteListener _outgoingListener;
-	
+
 	private final static int _receiveMax = 18;
 	private final static int START_BYTE = 0xCC;
 	private final static int ESCAPE_BYTE = 0xDC;
-	
+
 	private final static int MAX_PACKET_TYPES = 16;
-	
+
 	private enum ReceiveState {START, HEADER1, HEADER2, DATA, DATA_ESCAPE};
 	private ReceiveState _receiveState = ReceiveState.START;
-	private ArrayList<Integer> _receiveBuffer;
+	private final ArrayList<Integer> _receiveBuffer;
 	private int dataLength;    // Length of the data payload to higher layers
 	private int headerMeta;    // power down, ack, retries, type
-	
-	private ArrayList<Integer> _transmitBuffer;
-	
-	public FramingEngine() {
+
+	private final ArrayList<Integer> _transmitBuffer;
+
+	public PacketDispatch() {
 		_receiveBuffer = new ArrayList<Integer>();
 		_transmitBuffer = new ArrayList<Integer>();
-		
+
 		// Create the data structure for callbacks
 		incomingListeners = new ArrayList<ArrayList<IncomingPacketListener>>(MAX_PACKET_TYPES);
 		for (int i=0; i<MAX_PACKET_TYPES; i++) {
 			incomingListeners.add(new ArrayList<IncomingPacketListener>());
 		}
 	}
-	
+
 	public void receiveByte(int val) {
 		//System.out.print(val + " ");
 		if (val == START_BYTE && _receiveState != ReceiveState.DATA_ESCAPE) {
@@ -58,7 +58,7 @@ public class FramingEngine {
 			_receiveBuffer.clear();
 			return;
 		}
-		
+
 		switch (_receiveState) {
 			case DATA:
 				if (val == ESCAPE_BYTE) {
@@ -101,7 +101,7 @@ public class FramingEngine {
 				break;
 		}
 	}
-	
+
 	private void processPacket() {
 		// Verify the checksum is correct
 		int sum = headerMeta;
@@ -114,7 +114,7 @@ public class FramingEngine {
 			System.out.println("Received packet with failed checksum.");
 			return;
 		}
-		
+
 		// Create a new packet and fill in the header and data fields.
 		Packet P = new Packet();
 		P.length = _receiveBuffer.size() - 1;
@@ -126,9 +126,9 @@ public class FramingEngine {
 		for (int i = 0; i < P.length; i++) {
 			P.data[i] = _receiveBuffer.get(i);
 		}
-		
+
 		// Send to other layers
-		
+
 		// Check if there is at least one listener for this incoming packet
 		if (incomingListeners.get(P.typeId).size() > 0) {
 			for (int i=0; i<incomingListeners.get(P.typeId).size(); i++) {
@@ -140,21 +140,21 @@ public class FramingEngine {
 				incomingListeners.get(0).get(i).IncomingPacketReceive(P);
 			}
 		}
-		
+
 		// Send all packets to all listeners on 1
 		for (int i=0; i<incomingListeners.get(1).size(); i++) {
 			incomingListeners.get(1).get(i).IncomingPacketReceive(P);
 		}
-		
+
 	}
-	
+
 	public void transmitByte(int val) {
 		if (val == START_BYTE) {
 			_transmitBuffer.add(ESCAPE_BYTE);
 		}
 		_transmitBuffer.add(val);
 	}
-	
+
 	public void transmitEnd() {
 		int[] toSend = new int[_transmitBuffer.size() + 3];
 		toSend[0] = 0xDD;
@@ -163,12 +163,12 @@ public class FramingEngine {
 			toSend[i + 2] = _transmitBuffer.get(i);
 			toSend[_transmitBuffer.size() + 2] += toSend[i + 2];
 		}
-		
+
 		toSend[_transmitBuffer.size() + 2] &= 0xFF;
 		_transmitBuffer.clear();
 		_outgoingListener.OutgoingByteTransmit(toSend);
 	}
-	
+
 	// Register a callback handler for a particular packet type. Each packet
 	// type can have multiple handlers in case multiple services want to know
 	// about a given packet type.
@@ -180,16 +180,16 @@ public class FramingEngine {
 		}
 		incomingListeners.get(packetTypeID).add(listener);
 	}
-	
+
 	public void registerOutgoingByteListener(OutgoingByteListener listener) {
 		_outgoingListener = listener;
 	}
-	
+
 	public interface IncomingPacketListener {
 		public abstract void IncomingPacketReceive(Packet packet);
 	}
-	
+
 	public interface OutgoingByteListener {
-		public abstract void OutgoingByteTransmit(int[] outgoingRaw); 
+		public abstract void OutgoingByteTransmit(int[] outgoingRaw);
 	}
 }
