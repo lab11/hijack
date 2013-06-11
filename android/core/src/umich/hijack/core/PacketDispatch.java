@@ -21,7 +21,6 @@ import java.util.ArrayList;
 
 public class PacketDispatch {
 	private final ArrayList<ArrayList<IncomingPacketListener>> incomingListeners;
-	//private IncomingPacketListener _incomingListener;
 	private OutgoingByteListener _outgoingListener;
 
 	private final static int _receiveMax = 18;
