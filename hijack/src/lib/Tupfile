@@ -1,0 +1,4 @@
+
+include ../../global.tup
+
+: foreach *.c |> @(CC) -c $(CFLAGS) -o %o %f |> %B.o | ../../<objs>

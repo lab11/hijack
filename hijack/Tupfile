@@ -1,0 +1,4 @@
+
+include global.tup
+
+: <objs> |> @(CC) `cat %<objs>` $(LDFLAGS) -o %o |> @(TARGET).elf | @(TARGET).map
