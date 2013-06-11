@@ -1,3 +1,5 @@
 INCLUDES = -I/usr/local/msp430/include -I$(TUP_CWD)/src/include
 CFLAGS   = -mmcu=@(MCU) -O2 -g -Wall -Wunused $(INCLUDES)
 LDFLAGS  = -mmcu=@(MCU) -Wl,-Map=@(TARGET).map
+
+.gitignore
