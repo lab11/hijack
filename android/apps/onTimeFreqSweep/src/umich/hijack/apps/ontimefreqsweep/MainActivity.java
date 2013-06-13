@@ -29,6 +29,7 @@ public class MainActivity extends Activity {
 	private PacketDispatch _framer;
 
 	private boolean _nextFlag = false;
+	private boolean powerActive = true;
 
 	// Log file for saving
 	private File logfile;
@@ -49,6 +50,7 @@ public class MainActivity extends Activity {
 
 		_serialDecoder.registerBytesAvailableListener(_bytesAvailableListener);
 		_serialDecoder.registerByteSentListener(_byteSentListener);
+		_serialDecoder.setPowerFreq(12000);
 
 		_framer.registerIncomingPacketListener(bootedPkt, 3);
 		_framer.registerIncomingPacketListener(resumedPkt, 4);
@@ -84,7 +86,20 @@ public class MainActivity extends Activity {
 					@Override
 					public void run() {
 
+						powerActive = true;
+
 						while (currentFreq <= endFreq) {
+
+							if (!powerActive) {
+								runOnUiThread(new Runnable() {
+									@Override
+									public void run () {
+										currFreqTextView.setText("Stopped");
+									}
+								});
+								break;
+							}
+
 							_serialDecoder.setPowerFreq(currentFreq);
 							currentFreq += hzStep;
 
@@ -97,6 +112,8 @@ public class MainActivity extends Activity {
 
 							// Add note in log that the frequency has changed
 							addToLog("set frequency: " + Integer.toString(currentFreq) + " Hz\n");
+
+							System.out.println("set frequency: " + Integer.toString(currentFreq) + " Hz");
 
 							if (msStep == 0) {
 								while (!_nextFlag) {
@@ -143,6 +160,33 @@ public class MainActivity extends Activity {
 			@Override
 			public void onClick(View v) {
 				_nextFlag = true;
+			}
+		});
+
+		final Button b3 = (Button)findViewById(R.id.button3);
+		b3.setOnClickListener(new OnClickListener() {
+
+			@Override
+			public void onClick(View v) {
+				if (powerActive) {
+					powerActive = false;
+					_serialDecoder.stop();
+					MainActivity.this.runOnUiThread(new Runnable() {
+						@Override
+						public void run() {
+							b3.setText("Start");
+						}
+					});
+				} else {
+					powerActive = true;
+					_serialDecoder.start();
+					MainActivity.this.runOnUiThread(new Runnable() {
+						@Override
+						public void run() {
+							b3.setText("Stop");
+						}
+					});
+				}
 			}
 		});
     }
@@ -250,7 +294,7 @@ public class MainActivity extends Activity {
 		try {
 			logfile_bw.write(date_now_str + ": " + s);
 		} catch (IOException e) {
-			e.printStackTrace();
+			//e.printStackTrace();
 		}
 	}
 }

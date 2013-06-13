@@ -15,6 +15,9 @@
  *  along with hijack-infinity.  If not, see <http://www.gnu.org/licenses/>.
  */
 
+#include <stdio.h>
+#include <string.h>
+
 #include "framingEngine.h"
 
 /////////////////////////////
@@ -22,22 +25,16 @@
 /////////////////////////////
 
 void fe_init(void) {
+	memset((void*) &fe_state, 0, sizeof(struct fe_state_struct));
+
 	fe_state.rxState = fe_receiveState_start;
-	fe_state.incomingBufferPos = 0;
-	fe_state.outgoingBufferPos = 0;
-	fe_state.outgoingBufferSize = 0;
-
-	fe_state.incomingPktSize = 0;
-	fe_state.outgoingPktSize = 0;
-
-	fe_state.receiveSize = 0;
 }
 
 void fe_handleByteReceived(uint8_t val) {
 
 	// If it's a start-byte abandon what we were
 	// doing previously and reset state back to start.
-	if (val == 0xDD &&
+	if (val == START_BYTE &&
 		fe_state.rxState != fe_receiveState_dataEscape) {
 		fe_state.rxState = fe_receiveState_size;
 		fe_state.incomingBufferPos = 0;
@@ -48,7 +45,7 @@ void fe_handleByteReceived(uint8_t val) {
 		// More than most likely it's data
 		// or an escape character:
 		case fe_receiveState_data:
-			if (val == 0xCC) {
+			if (val == ESCAPE_BYTE) {
 				fe_state.rxState = fe_receiveState_dataEscape;
 				fe_state.receiveSize--;
 				break;
@@ -69,37 +66,74 @@ void fe_handleByteReceived(uint8_t val) {
 				break;
 			}
 			fe_state.receiveSize = val;
+			fe_state.rxState = fe_receiveState_header;
+			break;
+
+		case fe_receiveState_header:
+			fe_state.header = val;
 			fe_state.rxState = fe_receiveState_data;
 			break;
+
 		default:
 			break;
 	}
 }
 
 void fe_handleByteSent(void) {
-	// If we've sent the entire packet then lets call
-	// the application layer and have it generate another
-	// packet.
-	if (fe_state.outgoingBufferPos == fe_state.outgoingBufferSize) {
+	// If we've sent the entire packet then lets call the application layer to
+	// let it know
+	if (fe_state.outBufIdx == fe_state.outBufLen) {
+		fe_state.sendingPacket = 0;
 		fe_state.packetSentCb();
-		fe_buildTransmitBuffer();
-		fe_state.outgoingBufferPos = 0;
+		return;
 	}
 
-	fe_state.byteSender(fe_state.outgoingBuffer[fe_state.outgoingBufferPos++]);
+	// Transmit the next byte
+	fe_state.byteSender(fe_state.outBuf[fe_state.outBufIdx++]);
 }
 
-void fe_writeTxBuffer(uint8_t * buf, uint8_t len) {
+// Send a packet. First it builds the outgoing packet in the outBuf and then
+// starts the process of sending it.
+// Returns an error if there is already a packet transmission in progress
+fe_error_e fe_sendPacket (packet_t* pkt) {
 	uint8_t i;
-	for (i = 0; i < len; i++) {
-		fe_state.outgoingPktBuffer[i] = buf[i];
+	uint8_t sum;
+	if (fe_state.sendingPacket) {
+		return FE_BUSY;
 	}
-	fe_state.outgoingPktSize = len;
-}
 
-void fe_startSending(void) {
-	fe_buildTransmitBuffer();
-	fe_handleByteSent();
+	fe_state.sendingPacket = 1;
+
+	// Fill the outgoing buffer from the given packet
+	fe_state.outBufIdx = 0;
+	fe_state.outBuf[fe_state.outBufIdx++] = START_BYTE;
+	fe_state.outBuf[fe_state.outBufIdx++] = pkt->length; // length
+	fe_state.outBuf[fe_state.outBufIdx] = (pkt->power_down & 0x1) << 7 |
+	                                      (pkt->ack_requested & 0x1) << 6 |
+	                                      (pkt->retries & 0x3) << 4 |
+	                                      (pkt->type & 0xF);
+	sum = fe_state.outBuf[fe_state.outBufIdx++];
+
+	// Copy the data portion of the packet to the buffer, inserting escapes
+	// where necessary.
+	for (i=0; i<pkt->length; i++) {
+		if (pkt->data[i] == START_BYTE || pkt->data[i] == ESCAPE_BYTE) {
+			fe_state.outBuf[fe_state.outBufIdx++] = ESCAPE_BYTE;
+			sum += ESCAPE_BYTE;
+			fe_state.outBuf[1]++; // add 1 to length byte
+		}
+
+		fe_state.outBuf[fe_state.outBufIdx++] = pkt->data[i];
+		sum += pkt->data[i];
+	}
+	fe_state.outBuf[fe_state.outBufIdx] = sum; // checksum
+	fe_state.outBufIdx = 0;
+	fe_state.outBufLen = fe_state.outBuf[1] + 4; // start byte, length, header, chksum
+
+	// Start sending the packet
+	fe_state.byteSender(fe_state.outBuf[fe_state.outBufIdx++]);
+
+	return FE_SUCCESS;
 }
 
 //////////////////////////////////
@@ -123,7 +157,7 @@ void fe_registerByteSender(fe_byteSender * sender) {
 ////////////////////////////
 
 void fe_checkPacket() {
-	uint8_t sum = 0;
+	uint8_t sum = fe_state.header;
 	uint8_t i = 0;
 	uint8_t incomingPktPos = 0;
 
@@ -143,52 +177,17 @@ void fe_checkPacket() {
 
 		// Ignore the checksum on the end.
 		for (i = 0; i < fe_state.incomingBufferPos - 1; i++) {
-			fe_state.incomingPktBuffer[incomingPktPos++] =
+			fe_state.incomingPkt.data[incomingPktPos++] =
 				fe_state.incomingBuffer[i];
 		}
 
-		fe_state.incomingPktSize = incomingPktPos;
+		fe_state.incomingPkt.length = incomingPktPos;
 
-		fe_state.packetReceivedCb(fe_state.incomingPktBuffer,
-			fe_state.incomingPktSize);
+		// Process the header fields
+		if (fe_state.header & 0x40) fe_state.incomingPkt.ack_requested = 1;
+		fe_state.incomingPkt.retries = (fe_state.header & 0x30) >> 4;
+		fe_state.incomingPkt.type = fe_state.header & 0x0f;
+
+		fe_state.packetReceivedCb(&fe_state.incomingPkt);
 	}
-}
-
-void fe_buildTransmitBuffer(void) {
-	// DEPENDS ON:
-	// - outgoingPktBuffer being full
-	// - outgoingPktSize being accurate
-
-	// MODIFIES:
-	// - outgoingBuffer
-	// - outgoingBufferSize
-	// - outgoingBufferPos
-
-	uint8_t i;
-	uint8_t sum = 0;
-
-	fe_state.outgoingBufferPos = 0;
-	fe_state.outgoingBuffer[fe_state.outgoingBufferPos++] = 0xDD;
-	fe_state.outgoingBuffer[fe_state.outgoingBufferPos++] =
-		fe_state.outgoingPktSize + 1;
-
-	for (i = 0; i < fe_state.outgoingPktSize; i++) {
-
-		// Properly escape invalid characters.
-		if (fe_state.outgoingPktBuffer[i] == 0xDD ||
-			fe_state.outgoingPktBuffer[i] == 0xCC) {
-			fe_state.outgoingBuffer[fe_state.outgoingBufferPos++] = 0xCC;
-			sum += 0xCC;
-			fe_state.outgoingBuffer[1]++;
-		}
-
-		fe_state.outgoingBuffer[fe_state.outgoingBufferPos++] =
-			fe_state.outgoingPktBuffer[i];
-
-		sum += fe_state.outgoingPktBuffer[i];
-	}
-
-	fe_state.outgoingBuffer[fe_state.outgoingBufferPos++] = sum;
-	fe_state.outgoingBufferSize = fe_state.outgoingBufferPos;
-	fe_state.outgoingBufferPos = 0;
 }

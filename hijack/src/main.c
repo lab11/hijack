@@ -21,6 +21,7 @@
 #include "pal.h"
 #include "codingStateMachine.h"
 #include "framingEngine.h"
+#include "packet.h"
 
 // TO FIX
  #include "interrupt.h"
@@ -45,8 +46,12 @@ volatile uint8_t pendingStart = 0;
 // STOP FIX
 
 
+packet_t booted_packet = {1, 0, 1, 0, 3, {0}};
+
+
+
 uint8_t outMessage[] = {
-	0xAB, 0xDC, 0xEF, 0x12, 0x34, 0x56
+	0xAB, 0xDC, 0xEF, 0x12, 0x34, 0x56, 0, 0, 0
 };
 
 uint8_t pgoodMessage[] = {
@@ -71,21 +76,15 @@ void captureTimerFn(uint16_t elapsedTime, uint8_t isHigh) {
 	struct csm_timer_struct timingData;
 	timingData.elapsedTime = elapsedTime;
 	timingData.signal = !isHigh;
-	csm_receiveTiming(&timingData);	
+	csm_receiveTiming(&timingData);
 }
 
-void packetReceivedCallback(uint8_t * buf, uint8_t len) {
-	if (len == 1) {
-		pal_setDigitalGpio(pal_gpio_led, 1);
-		pal_setDigitalGpio(pal_gpio_dout1, ((buf[0] >> 0) & 0x01));
-		pal_setDigitalGpio(pal_gpio_dout2, ((buf[0] >> 1) & 0x01));
-		pal_setDigitalGpio(pal_gpio_dout3, ((buf[0] >> 2) & 0x01));
-		pal_setDigitalGpio(pal_gpio_dout4, ((buf[0] >> 3) & 0x01));
-	}
+void packetReceivedCallback(packet_t* pkt) {
+
 }
 
 void packetSentCallback(void) {
-	if (pendingShutdown) {
+/*	if (pendingShutdown) {
 		pal_pause();
 		pendingTimerStop = 1;
 	}
@@ -100,7 +99,9 @@ void packetSentCallback(void) {
 	}
 	else {
 		fe_writeTxBuffer(outMessage, 6);
-	}
+	}*/
+	booted_packet.data[0]++;
+	fe_sendPacket(&booted_packet);
 }
 
 void updateAnalogOutputBuffer(void) {
@@ -156,8 +157,7 @@ void initializeSystem(void) {
 
 	// Start the transmit callback-driven
 	// loop
-	fe_writeTxBuffer(pgoodMessage, 1);
-	fe_startSending();
+	fe_sendPacket(&booted_packet);
 }
 
 // This is the main loop. It's not very
@@ -176,13 +176,13 @@ int main () {
 
 	// TO FIX
 	interrupt_init();
-	
-	if((P2IN >> 0) & 0x01){
-		interrupt_create(2, 0, HIGH_TO_LOW, int_pbad);
-	}
-	else{ 
-		interrupt_create(2, 0, LOW_TO_HIGH, int_pgood);
-	}
+
+//	if((P2IN >> 0) & 0x01){
+//		interrupt_create(2, 0, HIGH_TO_LOW, int_pbad);
+//	}
+//	else{
+//		interrupt_create(2, 0, LOW_TO_HIGH, int_pgood);
+//	}
 
 	// STOP FIX
 
@@ -221,7 +221,7 @@ void int_pbad(){
 	//pal_setDigitalGpio(pal_gpio_dout1, 0);
 	pwr_on = 0;
 	pendingStop = 1;
-	
+
 	//pal_pause();
 	interrupt_remove(2, 0);
 	interrupt_create(2, 0, LOW_TO_HIGH, int_pgood);

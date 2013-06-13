@@ -1,0 +1,8 @@
+
+include ../../../global.tup
+
+ifeq (@(MCU),msp430fr5969)
+
+: foreach *.c |> @(CC) -c $(CFLAGS) -o %o %f |> %B.o | ../../../<objs>
+
+endif

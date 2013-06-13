@@ -29,11 +29,12 @@ public class PacketDispatch {
 
 	private final static int MAX_PACKET_TYPES = 16;
 
-	private enum ReceiveState {START, HEADER1, HEADER2, DATA, DATA_ESCAPE};
+	private enum ReceiveState {START, HEADER1, HEADER2, DATA, DATA_ESCAPE, CHECKSUM};
 	private ReceiveState _receiveState = ReceiveState.START;
 	private final ArrayList<Integer> _receiveBuffer;
 	private int dataLength;    // Length of the data payload to higher layers
 	private int headerMeta;    // power down, ack, retries, type
+	private int checksum;
 
 	private final ArrayList<Integer> _transmitBuffer;
 
@@ -53,6 +54,7 @@ public class PacketDispatch {
 		if (val == START_BYTE && _receiveState != ReceiveState.DATA_ESCAPE) {
 			// We got a start of packet byte. Clear the buffer and prepare to
 			// receiver the header.
+			System.out.println("RECEIVED START BYTE " + Integer.toHexString(val));
 			_receiveState = ReceiveState.HEADER1;
 			_receiveBuffer.clear();
 			return;
@@ -70,16 +72,14 @@ public class PacketDispatch {
 				_receiveBuffer.add(val);
 				if (_receiveBuffer.size() == dataLength) {
 					// Got all the bytes for the payload
-					processPacket();
-					_receiveState = ReceiveState.START;
+					_receiveState = ReceiveState.CHECKSUM;
 				}
 				break;
 			case DATA_ESCAPE:
 				_receiveState = ReceiveState.DATA;
 				_receiveBuffer.add(val);
 				if (_receiveBuffer.size() == dataLength) {
-					processPacket();
-					_receiveState = ReceiveState.START;
+					_receiveState = ReceiveState.CHECKSUM;
 				}
 				break;
 			case HEADER1:
@@ -89,12 +89,24 @@ public class PacketDispatch {
 					_receiveState = ReceiveState.START;
 					break;
 				}
+			//	System.out.println("RECEIVED LENGTH 0x" + Integer.toHexString(val));
 				dataLength = val;
 				_receiveState = ReceiveState.HEADER2;
 				break;
 			case HEADER2:
 				headerMeta = val;
-				_receiveState = ReceiveState.DATA;
+			//	System.out.println("RECEIVED HEADER2 0x" + Integer.toHexString(val));
+				if (dataLength == 0) {
+					_receiveState = ReceiveState.CHECKSUM;
+				} else {
+					_receiveState = ReceiveState.DATA;
+				}
+				break;
+			case CHECKSUM:
+				checksum = val;
+			//	System.out.println("RECEIVED CHECKSUM 0x" + Integer.toHexString(val));
+				_receiveState = ReceiveState.START;
+				processPacket();
 				break;
 			default:
 				break;
@@ -102,21 +114,27 @@ public class PacketDispatch {
 	}
 
 	private void processPacket() {
+		//System.out.println();
+
+		System.out.print("Length: 0x" + Integer.toHexString(dataLength));
+		System.out.print(" Header: 0x" + Integer.toHexString(headerMeta) + " Data: 0x");
+
 		// Verify the checksum is correct
 		int sum = headerMeta;
-		for (int i = 0; i < _receiveBuffer.size() - 1; i++) {
-			//System.out.print(Integer.toHexString(_receiveBuffer.get(i)) + " ");
+		for (int i = 0; i < _receiveBuffer.size(); i++) {
+			System.out.print(Integer.toHexString(_receiveBuffer.get(i)));
 			sum += _receiveBuffer.get(i);
 		}
-		//System.out.println(Integer.toHexString(_receiveBuffer.get(_receiveBuffer.size() - 1)));
-		if ((sum & 0xFF) == _receiveBuffer.get(_receiveBuffer.size() - 1)) {
+		System.out.println();
+
+		if ((sum & 0xFF) != checksum) {
 			System.out.println("Received packet with failed checksum.");
 			return;
 		}
 
 		// Create a new packet and fill in the header and data fields.
 		Packet P = new Packet();
-		P.length = _receiveBuffer.size() - 1;
+		P.length = _receiveBuffer.size();
 		P.ackRequested = ((headerMeta & Packet.PKT_ACKREQ_MASK) >> Packet.PKT_ACKREQ_OFFSET) != 0;
 		P.powerDown = ((headerMeta & Packet.PKT_POWERDOWN_MASK) >> Packet.PKT_POWERDOWN_OFFSET) != 0;
 		P.sentCount = ((headerMeta & Packet.PKT_RETRIES_MASK) >> Packet.PKT_RETRIES_OFFSET) + 1;
@@ -127,7 +145,7 @@ public class PacketDispatch {
 		}
 
 		// Send to other layers
-
+/*
 		// Check if there is at least one listener for this incoming packet
 		if (incomingListeners.get(P.typeId).size() > 0) {
 			for (int i=0; i<incomingListeners.get(P.typeId).size(); i++) {
@@ -144,7 +162,7 @@ public class PacketDispatch {
 		for (int i=0; i<incomingListeners.get(1).size(); i++) {
 			incomingListeners.get(1).get(i).IncomingPacketReceive(P);
 		}
-
+*/
 	}
 
 	public void transmitByte(int val) {

@@ -449,6 +449,8 @@ public class AudioReceiver {
 
 		releaseAudioResources();
 
+		_isInitialized = false;
+
 		if (_debug) {
 			stopDebug();
 		}

@@ -1,4 +1,6 @@
 
 include global.tup
 
-: <objs> |> @(CC) `cat %<objs>` $(LDFLAGS) -o %o |> @(TARGET).elf | @(TARGET).map
+: <objs> |> @(CC) `cat %<objs>` $(LDFLAGS) -o %o |> @(TARGET).elf | @(TARGET).map {elf}
+: {elf}  |> echo ">>>> Size of Firmware <<<<" && @(SIZE) %f |>
+: {elf}  |> @(OBJCOPY) -O ihex %f %o                        |> %B.hex

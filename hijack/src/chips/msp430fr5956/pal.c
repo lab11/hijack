@@ -17,25 +17,15 @@
 
 #include "pal.h"
 
-#if defined(MSP430FR5969) || defined(MSP430F1611)
-
 #include <msp430.h>
 #include "gpio.h"
 #include "utility.h"
 #include "hardware.h"
 #include "analog.h"
 
-#endif
-
-#if defined(MSP430FR5969)
 #include "comparator.h"
 #include "ptimer.h"
 #include "ctimer.h"
-#endif
-
-#if defined(MSP430F1611)
-#include "f1611_timer.h"
-#endif
 
 pal_periodicTimerCb * pal_periodicTimerCbPtr;
 pal_captureTimerCb * pal_captureTimerCbPtr;
@@ -48,7 +38,6 @@ void pal_registerCaptureTimerCb(pal_captureTimerCb * fn) {
 	pal_captureTimerCbPtr = fn;
 }
 
-#if defined(MSP430FR5969) || defined(MSP430F1611)
 void pal_init(void) {
 	util_disableWatchdog();
 	util_boardInit();
@@ -58,7 +47,7 @@ void pal_init(void) {
 	gpio_init(OUT2_PORT, OUT2_PIN, GPIO_OUT);
 	gpio_init(OUT3_PORT, OUT3_PIN, GPIO_OUT);
 	gpio_init(OUT4_PORT, OUT4_PIN, GPIO_OUT);*/
-	
+
 	//gpio_init(OUT1_PORT, OUT1_PIN, GPIO_IN);
 	//gpio_init(OUT2_PORT, OUT2_PIN, GPIO_IN);
 	//gpio_init(OUT3_PORT, OUT3_PIN, GPIO_OUT);
@@ -71,7 +60,7 @@ void pal_init(void) {
 
 	//gpio_init(LED_PORT, LED_PIN, GPIO_OUT);
 	//gpio_init(LED_PORT, LED_PIN, GPIO_OUT);
-	
+
 	//gpio_init(LED_PORT, LED_PIN, GPIO_IN);
 	//gpio_init(LED_PORT, LED_PIN, GPIO_IN);
 
@@ -137,9 +126,7 @@ uint16_t pal_readAnalogGpio(enum pal_gpioEnum pin) {
 			return 0;
 	}
 }
-#endif
 
-#if defined(MSP430FR5969)
 void pal_startTimers(void) {
 	// Initialize the hardware to drive the
 	// signal processing layers.
@@ -181,44 +168,3 @@ void pal_captureTimerFn(uint16_t elapsedTime) {
 void pal_loopDelay(void) {
 	__delay_cycles(4000);
 }
-#endif
-
-#if defined(MSP430F1611)
-
-void pal_startTimers(void) {
-	timer_init();
-	timer_setCaptureCallback(pal_captureTimerFn);
-	timer_setPeriodicCallback(pal_periodicTimerFn);
-
-	timer_start();
-
-	//util_delayMs(100);
-}
-
-void pal_pause(void) {
-	timer_stop();
-	//P2DIR |= (1<<3);
-}
-
-void pal_resume(void) {
-	//P2DIR &= ~(1<<3);
-	timer_start();
-}
-
-void pal_periodicTimerFn(void) {
-	if (pal_periodicTimerCbPtr != 0) {
-		pal_periodicTimerCbPtr();
-	}
-}
-
-void pal_captureTimerFn(uint16_t elapsedTime) {
-	uint8_t pinValue = !!timer_readCaptureLine();
-	if (pal_captureTimerCbPtr != 0) {
-		pal_captureTimerCbPtr(elapsedTime, pinValue);
-	}
-}
-
-void pal_loopDelay(void) {
-	__delay_cycles(400);
-}
-#endif

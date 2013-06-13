@@ -24,14 +24,24 @@
 
 #include "gpio.h"
 #include "hardware.h"
+#include "packet.h"
+
+#define START_BYTE 0xCC
+#define ESCAPE_BYTE 0xDD
 
 ////////////////////////////////////////
 // Public Memebers:
 ////////////////////////////////////////
 
 typedef void fe_callback(void);
-typedef void fe_packetReceived(uint8_t * buf, uint8_t len);
+typedef void fe_packetReceived(packet_t* pkt);
 typedef uint8_t fe_byteSender(uint8_t);
+
+typedef enum fe_error {
+	FE_SUCCESS = 0,
+	FE_BUSY = 1,
+	FE_FAIL = 2
+} fe_error_e;
 
 // Initialize the internal structures of
 // the framing engine.
@@ -41,7 +51,7 @@ void fe_init(void);
 // pass a received byte into the framing engine.
 void fe_handleByteReceived(uint8_t byte);
 
-// Called by the byte-sending machinery to 
+// Called by the byte-sending machinery to
 // notify the framing engine a byte has been sent
 // allowing it to queue another byte.
 void fe_handleByteSent(void);
@@ -60,14 +70,7 @@ void fe_registerPacketSentCb(fe_callback * cb);
 // to send a byte to the lower layers of communication.
 void fe_registerByteSender(fe_byteSender * sender);
 
-// Fills the TxBuffer with raw unpacketified data
-// to be sent by the framing engine. Should be called
-// only when first started and from within a PacketSentCb.
-void fe_writeTxBuffer(uint8_t * buf, uint8_t len);
-
-// Called once to initialize the callback-driven
-// sending loop.
-void fe_startSending(void);
+fe_error_e fe_sendPacket (packet_t* pkt);
 
 ////////////////////////////////////////
 // Private Memebers:
@@ -77,42 +80,48 @@ void fe_startSending(void);
 #define FE_OUTBUFFERSIZE 20
 #define FE_RECEIVEMAX 18
 
-enum fe_receiveStateEnum {
+typedef enum fe_receiveStateEnum {
 	fe_receiveState_start,
 	fe_receiveState_size,
+	fe_receiveState_header,
 	fe_receiveState_data,
 	fe_receiveState_dataEscape
-};
+} fe_receiveState_e;
 
 struct fe_state_struct {
+
+	// Whether or not there is a packet transmission in progress
+	uint8_t sendingPacket;
 
 	// Holds the received raw data and the outgoing
 	// full packet data.
 	uint8_t incomingBuffer[FE_INBUFFERSIZE];
-	uint8_t outgoingBuffer[FE_OUTBUFFERSIZE];
 	uint8_t incomingBufferPos;
-	uint8_t outgoingBufferPos;
-	uint8_t outgoingBufferSize;
 
-	// Where we build the incoming and outgoing
-	// packets from. 
+	// Storage space for the rendered outgoing packet that can be put on the
+	// wire.
+	uint8_t outBuf[FE_OUTBUFFERSIZE];
+	uint8_t outBufIdx;
+	uint8_t outBufLen;
+
+	// Where we build the incoming and outgoing packets from.
 	// Incoming packet payload is written here
 	// and outgoing packet payload is written here.
-	uint8_t incomingPktBuffer[FE_INBUFFERSIZE];
-	uint8_t outgoingPktBuffer[FE_OUTBUFFERSIZE];
-	uint8_t incomingPktSize;
-	uint8_t outgoingPktSize;
+	packet_t outgoingPkt;
 
+	// Where the most recently received packet resides
+	packet_t incomingPkt;
 
-	fe_packetReceived * packetReceivedCb;
-	fe_callback * packetSentCb;
-	fe_byteSender * byteSender;
+	// Callbacks for events related to packets
+	fe_packetReceived* packetReceivedCb;
+	fe_callback* packetSentCb;
+	fe_byteSender* byteSender;
 
-	enum fe_receiveStateEnum rxState;
+	fe_receiveState_e rxState;
 
-	// Stores the received size of the incoming
-	// packet.
+	// Stores the received size of the incoming packet.
 	uint8_t receiveSize;
+	uint8_t header;
 } fe_state;
 
 void fe_checkPacket(void);

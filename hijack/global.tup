@@ -1,4 +1,4 @@
-INCLUDES = -I/usr/local/msp430/include -I$(TUP_CWD)/src/include
+INCLUDES = -I/usr/local/msp430/include -I$(TUP_CWD)/src/include -I$(TUP_CWD)/src
 CFLAGS   = -mmcu=@(MCU) -O2 -g -Wall -Wunused $(INCLUDES)
 LDFLAGS  = -mmcu=@(MCU) -Wl,-Map=@(TARGET).map
 
