@@ -46,7 +46,7 @@ volatile uint8_t pendingStart = 0;
 // STOP FIX
 
 
-packet_t booted_packet = {1, 0, 1, 0, 3, {0}};
+packet_t booted_packet = {10, 0, 1, 0, 3, {0}};
 
 
 
@@ -100,6 +100,7 @@ void packetSentCallback(void) {
 	else {
 		fe_writeTxBuffer(outMessage, 6);
 	}*/
+	util_delayMs(1000);
 	booted_packet.data[0]++;
 	fe_sendPacket(&booted_packet);
 }

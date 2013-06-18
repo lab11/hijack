@@ -25,7 +25,7 @@ public class PacketDispatch {
 
 	private final static int _receiveMax = 18;
 	private final static int START_BYTE = 0xCC;
-	private final static int ESCAPE_BYTE = 0xDC;
+	private final static int ESCAPE_BYTE = 0xDD;
 
 	private final static int MAX_PACKET_TYPES = 16;
 
@@ -54,7 +54,7 @@ public class PacketDispatch {
 		if (val == START_BYTE && _receiveState != ReceiveState.DATA_ESCAPE) {
 			// We got a start of packet byte. Clear the buffer and prepare to
 			// receiver the header.
-			System.out.println("RECEIVED START BYTE " + Integer.toHexString(val));
+		//	System.out.println("RECEIVED START BYTE " + Integer.toHexString(val));
 			_receiveState = ReceiveState.HEADER1;
 			_receiveBuffer.clear();
 			return;
@@ -65,6 +65,7 @@ public class PacketDispatch {
 				if (val == ESCAPE_BYTE) {
 					// The next byte is escaped and this byte won't be in the
 					// actual packet data.
+			//		System.out.println("ESCAPED BYTE " + Integer.toHexString(val));
 					_receiveState = ReceiveState.DATA_ESCAPE;
 					dataLength--;
 					break;
@@ -89,13 +90,13 @@ public class PacketDispatch {
 					_receiveState = ReceiveState.START;
 					break;
 				}
-			//	System.out.println("RECEIVED LENGTH 0x" + Integer.toHexString(val));
+				//System.out.println("RECEIVED LENGTH 0x" + Integer.toHexString(val));
 				dataLength = val;
 				_receiveState = ReceiveState.HEADER2;
 				break;
 			case HEADER2:
 				headerMeta = val;
-			//	System.out.println("RECEIVED HEADER2 0x" + Integer.toHexString(val));
+				//System.out.println("RECEIVED HEADER2 0x" + Integer.toHexString(val));
 				if (dataLength == 0) {
 					_receiveState = ReceiveState.CHECKSUM;
 				} else {
@@ -104,7 +105,7 @@ public class PacketDispatch {
 				break;
 			case CHECKSUM:
 				checksum = val;
-			//	System.out.println("RECEIVED CHECKSUM 0x" + Integer.toHexString(val));
+				//System.out.println("RECEIVED CHECKSUM 0x" + Integer.toHexString(val));
 				_receiveState = ReceiveState.START;
 				processPacket();
 				break;
@@ -124,6 +125,12 @@ public class PacketDispatch {
 		for (int i = 0; i < _receiveBuffer.size(); i++) {
 			System.out.print(Integer.toHexString(_receiveBuffer.get(i)));
 			sum += _receiveBuffer.get(i);
+
+			// Have to add in an escape byte to checksum if there was one in the
+			// original message.
+			if (_receiveBuffer.get(i) == START_BYTE || _receiveBuffer.get(i) == ESCAPE_BYTE) {
+				sum += ESCAPE_BYTE;
+			}
 		}
 		System.out.println();
 
