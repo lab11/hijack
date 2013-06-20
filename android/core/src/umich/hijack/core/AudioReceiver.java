@@ -253,7 +253,7 @@ public class AudioReceiver {
 				_searchState = meanVal < 0 ? SearchState.NEGATIVE_PEAK : SearchState.POSITIVE_PEAK;
 			}
 
-			// Have we just seen a zero transistion?
+			// Have we just seen a zero transition?
 			if ((meanVal < 0 && _searchState == SearchState.POSITIVE_PEAK) ||
 					(meanVal > 0 && _searchState == SearchState.NEGATIVE_PEAK)) {
 

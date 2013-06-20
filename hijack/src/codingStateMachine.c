@@ -19,7 +19,7 @@
 
 #include <msp430.h>
 
- int txTempBit = 0;
+int txTempBit = 0;
 
 /////////////////////////////////
 // Region: Receive state machine
@@ -38,7 +38,7 @@ void csm_receiveIdle(void) {
         csm_state.deltaT = csm_state.lastRx.elapsedTime;
         //TODO: FIX THIS, THIS IS AWFUL
         TBCCR0 = csm_state.lastRx.elapsedTime;
-    
+
         csm_state.rxState = csm_receiveState_data;
 
         // We include the start bit in the rx bits
@@ -53,7 +53,7 @@ void csm_receiveData(void) {
     // Two short pulses => Same bit as last bit
     // One long pulse => different bit
     // Anything else => nope nope nope.
-    if (csm_isWithinThreshold(csm_state.curRx.elapsedTime, 
+    if (csm_isWithinThreshold(csm_state.curRx.elapsedTime,
                                 csm_state.deltaT)) {
         // The next bit is the same as the previous bit,
         // but we must wait for the next short pulse.
@@ -66,7 +66,7 @@ void csm_receiveData(void) {
         if(((csm_state.rxByte >> (csm_state.rxBits - 1)) & 1) == 0) {
             csm_state.rxByte |= (1 << csm_state.rxBits);
         }
-        
+
         csm_state.rxBits++;
         csm_advanceReceiveDataState();
     }
@@ -80,8 +80,8 @@ void csm_receiveData(void) {
 void csm_receiveDataNext(void) {
     // We're waiting for the second short pulse. The only time
     // we'll see two short pulses in a row is when the bit is
-    // equal to the last bit. 
-    if (csm_isWithinThreshold(csm_state.curRx.elapsedTime, 
+    // equal to the last bit.
+    if (csm_isWithinThreshold(csm_state.curRx.elapsedTime,
                                 csm_state.deltaT)) {
         // If the previous bit was a one, make this bit
         // a one also.
@@ -132,7 +132,7 @@ uint8_t csm_transmitData(void) {
         }
     }
     else {
-         ret = !ret;       
+         ret = !ret;
     }
 
     return ret;
@@ -202,7 +202,7 @@ void csm_init(void) {
     csm_state.txDispatch[2] = &csm_transmitData;
     csm_state.txCallback = 0;
     csm_state.txIdleCycles = 0;
-        
+
     csm_state.lastRx.elapsedTime = 0;
     csm_state.lastRx.signal = 0;
 
@@ -220,7 +220,7 @@ void csm_init(void) {
 ////////////////////////////
 
 uint8_t csm_isWithinThreshold(uint16_t value, uint16_t desired) {
-    return value < desired + csm_state.threshold && 
+    return value < desired + csm_state.threshold &&
         value > desired - csm_state.threshold ? 1 : 0;
 }
 
@@ -241,7 +241,7 @@ void csm_advanceReceiveDataState(void) {
 
         if (csm_calcByteParity(csm_state.rxByte >> 1) == (csm_state.rxByte >> 9)) {
             csm_state.rxCallback((csm_state.rxByte >> 1) & 0xFF);
-        }      
+        }
 
         csm_state.rxState = csm_receiveState_idle;
     }

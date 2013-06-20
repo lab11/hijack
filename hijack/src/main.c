@@ -69,6 +69,7 @@ void periodicTimerFn (void) {
 	uint8_t ats;
 	ats = csm_advanceTransmitState();
 	pal_setDigitalGpio(pal_gpio_mic, ats);
+	//ats = (ats) ? 0 : 1;
 	csm_finishAdvanceTransmitState();
 }
 
@@ -196,7 +197,7 @@ int main () {
 		//if (pTransitionState == 1) {
 		//	fe_writeTxBuffer(pgoodMessage, 1);
 		//}
-		_BIS_SR(LPM0_bits);
+//		_BIS_SR(LPM0_bits);
 		//if (!((P2IN >> 0) & 0x01)) {
 		//	pal_pauseTimers();
 		//	_BIS_SR(LPM3_bits);
