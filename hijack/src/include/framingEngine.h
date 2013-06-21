@@ -33,9 +33,9 @@
 // Public Memebers:
 ////////////////////////////////////////
 
-typedef void fe_callback(void);
-typedef void fe_packetReceived(packet_t* pkt);
-typedef uint8_t fe_byteSender(uint8_t*, uint8_t);
+typedef void fe_callback (void);
+typedef void fe_packetReceived (packet_t* pkt);
+typedef uint8_t fe_bufferSender (uint8_t*, uint8_t);
 
 typedef enum fe_error {
 	FE_SUCCESS = 0,
@@ -54,7 +54,7 @@ void fe_handleByteReceived(uint8_t byte);
 // Called by the byte-sending machinery to
 // notify the framing engine a byte has been sent
 // allowing it to queue another byte.
-void fe_handleByteSent(void);
+void fe_handleBufferSent (void);
 
 // Register a callback to be invoked when a full packet
 // has been received by the framing engine and verified
@@ -64,11 +64,11 @@ void fe_registerPacketReceivedCb(fe_packetReceived * cb);
 // Register a callback to be invoked when a full packet
 // has been sent to allow for the application layer to
 // queue another packet for transmission.
-void fe_registerPacketSentCb(fe_callback * cb);
+void fe_registerPacketSentCb(fe_callback* cb);
 
 // Register a function that allows the framing engine
 // to send a byte to the lower layers of communication.
-void fe_registerByteSender(fe_byteSender * sender);
+void fe_registerBufferSender (fe_bufferSender* sender);
 
 fe_error_e fe_sendPacket (packet_t* pkt);
 
@@ -115,7 +115,7 @@ struct fe_state_struct {
 	// Callbacks for events related to packets
 	fe_packetReceived* packetReceivedCb;
 	fe_callback* packetSentCb;
-	fe_byteSender* byteSender;
+	fe_bufferSender* bufferSender;
 
 	fe_receiveState_e rxState;
 

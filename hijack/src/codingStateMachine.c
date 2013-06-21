@@ -17,6 +17,7 @@
 
 #include "codingStateMachine.h"
 #include "pal.h"
+#include "hardware.h"
 
 #include <msp430.h>
 #include <stdio.h>
@@ -133,8 +134,7 @@ uint8_t csm_transmitData(void) {
 			csm.txBytePosition = 0;
 			csm.txIdleCycles = 0;
 		}
-	}
-	else {
+	} else {
 		 ret = !ret;
 	}
 
@@ -151,50 +151,37 @@ void csm_receiveTiming(struct csm_timer_struct * in) {
 	csm.lastRx = (*in);
 }
 
-void csm_registerReceiveByte(csm_byteReceiver * func) {
-	csm.rxCallback = func;
+void csm_registerReceiveBuffer(csm_byteReceiver* f) {
+	csm.rxCallback = f;
 }
 
-void csm_registerTransmitByte(csm_byteSent * func) {
-	csm.txCallback = func;
+void csm_registerTransmitBuffer (csm_bufferSent* f) {
+	csm.txCallback = f;
 }
 
-uint8_t csm_advanceTransmitState(void) {
-	return txTempBit;
-}
-
-void csm_finishAdvanceTransmitState(void) {
-	txTempBit = csm.txDispatch[csm.txState]();
-
-	csm.txBitPosition = csm.txBitPosition == 0 ? 1 : 0;
-
-	if (csm.txIdleCycles == IDLE_CYCLES) {
-		csm.txCallback();
-		csm.txIdleCycles++;
-	}
-}
-
-
+// Call this to transmit a buffer of data to the phone.
+// Returns 0 on success, >0 otherwise
 uint8_t csm_sendBuffer (uint8_t* buf, uint8_t len) {
-	if (csm.transmittingPacket) {
-		return 1;
-	}
-	if (len > MAX_BUF_SIZE) {
-		return 2;
-	}
+	if (csm.transmittingPacket) return 1;
+	if (len > MAX_BUF_SIZE) return 2;
+
 	csm.transmittingPacket = 1;
 
+	// Copy the buffer to be transmitted and initialize buffer settings
 	memcpy(csm.rawTxBuf, buf, len);
 	csm.txLen = len;
 	csm.txByteIdx = 0;
 	csm.txBitIdx = 0;
 	csm.txBitHalf = 0;
+	csm.txPaddingBits = 10;
+
+
 
 	// Setup the pin value to be the start bit
-	csm.txPinVal = csm_int2man(START_BIT);
+	csm.txPinVal = csm_int2man(IDLE_BIT);
 
 	// Mark the state as data to start things sending
-	csm.txState = CSM_TXSTATE_DATA;
+	csm.txState = CSM_TXSTATE_PADDING;
 
 	return 0;
 }
@@ -223,10 +210,12 @@ void csm_txTimerInterrupt (void) {
 			csm.txBitHalf = 0;
 			csm.txBitIdx++;
 
+			//gpio_toggle(LED_PORT, LED_PIN);
+
 			if (csm.txBitIdx == 9) {
 				// Send the parity bit next
 				csm.txPinVal = csm_int2man(csm.txParityBits[csm.txByteIdx]);
-			} else if (csm.txByteIdx < 9) {
+			} else if (csm.txBitIdx < 9) {
 				// Send the correct data bit
 				csm.txPinVal = csm_int2man(
 					(csm.rawTxBuf[csm.txByteIdx] >> (csm.txBitIdx-1)) & 0x1);
@@ -236,15 +225,38 @@ void csm_txTimerInterrupt (void) {
 
 				if (csm.txByteIdx < csm.txLen) {
 					// Starting a new byte, send the start bit
-					csm.txBitIdx = 0;
-					csm.txPinVal = csm_int2man(START_BIT);
+				//	csm.txBitIdx = 0;
+					csm.txPinVal = csm_int2man(IDLE_BIT);
+					csm.txPaddingBits = 16;
+					csm.txState = CSM_TXSTATE_PADDING;
 				} else {
 					// Finished sending the packet, move to the idle state
 					csm.txState = CSM_TXSTATE_IDLE;
 					csm.transmittingPacket = 0;
 					csm.txPinVal = csm_int2man(IDLE_BIT);
+					csm.txCallback();
 				}
 
+			}
+			break;
+
+		case CSM_TXSTATE_PADDING:
+			if (csm.txBitHalf == 0) {
+				// still need to send the second half of the manchester bit
+				csm.txBitHalf = 1;
+				csm.txPinVal = (csm.txPinVal) ? 0 : 1;
+				return;
+			}
+
+			csm.txBitHalf = 0;
+
+			if (csm.txPaddingBits == 0) {
+				csm.txBitIdx = 0;
+				csm.txPinVal = csm_int2man(START_BIT);
+				csm.txState = CSM_TXSTATE_DATA;
+			} else {
+				csm.txPinVal = csm_int2man(IDLE_BIT);
+				csm.txPaddingBits--;
 			}
 			break;
 
@@ -253,37 +265,14 @@ void csm_txTimerInterrupt (void) {
 	}
 }
 
-// Converts bit 0 of val to what the first half of the manchester bit should be
-// set at.
-inline uint8_t csm_int2man (uint8_t val) {
-	return val & 0x1;
-}
-
 void csm_init(void) {
+	memset(&csm, 0, sizeof(struct csm_state_struct));
 	csm.txState = CSM_TXSTATE_IDLE;
-
-	csm.rxState = csm_receiveState_idle;
-	csm.rxCallback = 0;
-	csm.rxDispatch[0] = &csm_receiveIdle;
-	csm.rxDispatch[1] = &csm_receiveData;
-	csm.rxDispatch[2] = &csm_receiveDataNext;
-
-	csm.txDispatch[0] = &csm_transmitIdle;
-	csm.txDispatch[1] = &csm_transmitPending;
-	csm.txDispatch[2] = &csm_transmitData;
-	csm.txCallback = 0;
-	csm.txIdleCycles = 0;
-
-	csm.lastRx.elapsedTime = 0;
-	csm.lastRx.signal = 0;
 
 	// See config.h for declaration of these
 	// platform specific parameters.
 	csm.threshold = THRESHOLD;
 	csm.deltaT = DELTAT;
-
-	csm.txBitPosition = 0;
-	csm.txBytePosition = 0;
 }
 
 ////////////////////////////
@@ -295,15 +284,21 @@ uint8_t csm_isWithinThreshold(uint16_t value, uint16_t desired) {
 		value > desired - csm.threshold ? 1 : 0;
 }
 
+// Converts bit 0 of val to what the first half of the manchester bit should be
+// set at.
+inline uint8_t csm_int2man (uint8_t val) {
+	return val & 0x1;
+}
+
 uint8_t csm_calcByteParity(uint8_t byte) {
-		// calculate parity function
-		uint8_t parity = 0;
-		uint8_t i = 0;
-		while (i < 8) {
-			parity ^= ((byte >> i) & 1);
-			i++;
-		}
-		return parity;
+	// calculate parity function
+	uint8_t parity = 0;
+	uint8_t i = 0;
+	while (i < 8) {
+		parity ^= ((byte >> i) & 1);
+		i++;
+	}
+	return parity;
 }
 
 void csm_advanceReceiveDataState(void) {
@@ -315,8 +310,7 @@ void csm_advanceReceiveDataState(void) {
 		}
 
 		csm.rxState = csm_receiveState_idle;
-	}
-	else {
+	} else {
 		csm.rxState = csm_receiveState_data;
 	}
 }

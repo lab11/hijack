@@ -79,17 +79,10 @@ void fe_handleByteReceived(uint8_t val) {
 	}
 }
 
-void fe_handleByteSent(void) {
-	// If we've sent the entire packet then lets call the application layer to
-	// let it know
-	if (fe_state.outBufIdx == fe_state.outBufLen) {
-		fe_state.sendingPacket = 0;
-		fe_state.packetSentCb();
-		return;
-	}
-
-	// Transmit the next byte
-	//fe_state.byteSender(fe_state.outBuf[fe_state.outBufIdx++]);
+// Gets called when the lower layer has transmitted the buffer we passed to it
+void fe_handleBufferSent (void) {
+	fe_state.sendingPacket = 0;
+	fe_state.packetSentCb();
 }
 
 // Send a packet. First it builds the outgoing packet in the outBuf and then
@@ -98,6 +91,8 @@ void fe_handleByteSent(void) {
 fe_error_e fe_sendPacket (packet_t* pkt) {
 	uint8_t i;
 	uint8_t sum;
+	uint8_t error;
+
 	if (fe_state.sendingPacket) {
 		return FE_BUSY;
 	}
@@ -107,7 +102,7 @@ fe_error_e fe_sendPacket (packet_t* pkt) {
 	// Fill the outgoing buffer from the given packet
 	fe_state.outBufIdx = 0;
 	fe_state.outBuf[fe_state.outBufIdx++] = START_BYTE;
-	fe_state.outBuf[fe_state.outBufIdx++] = pkt->length; // length
+/*	fe_state.outBuf[fe_state.outBufIdx++] = pkt->length; // length
 	fe_state.outBuf[fe_state.outBufIdx] = (pkt->power_down & 0x1) << 7 |
 	                                      (pkt->ack_requested & 0x1) << 6 |
 	                                      (pkt->retries & 0x3) << 4 |
@@ -131,7 +126,13 @@ fe_error_e fe_sendPacket (packet_t* pkt) {
 	fe_state.outBufLen = fe_state.outBuf[1] + 4; // start byte, length, header, chksum
 
 	// Start sending the packet
-	fe_state.byteSender(fe_state.outBuf, fe_state.outBufLen);
+	error = fe_state.bufferSender(fe_state.outBuf, fe_state.outBufLen);
+	if (error > 0) {
+		return FE_FAIL;
+	}
+*/
+	fe_state.outBuf[1] = 0xCC;
+	error = fe_state.bufferSender(fe_state.outBuf, 2);
 
 	return FE_SUCCESS;
 }
@@ -140,16 +141,16 @@ fe_error_e fe_sendPacket (packet_t* pkt) {
 // Region: Callback Subscriptions
 //////////////////////////////////
 
-void fe_registerPacketReceivedCb(fe_packetReceived * cb) {
+void fe_registerPacketReceivedCb (fe_packetReceived* cb) {
 	fe_state.packetReceivedCb = cb;
 }
 
-void fe_registerPacketSentCb(fe_callback * cb) {
+void fe_registerPacketSentCb (fe_callback* cb) {
 	fe_state.packetSentCb = cb;
 }
 
-void fe_registerByteSender(fe_byteSender * sender) {
-	fe_state.byteSender = sender;
+void fe_registerBufferSender (fe_bufferSender* sender) {
+	fe_state.bufferSender = sender;
 }
 
 ////////////////////////////

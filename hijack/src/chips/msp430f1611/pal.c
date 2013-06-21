@@ -28,12 +28,12 @@
 pal_periodicTimerCb * pal_periodicTimerCbPtr;
 pal_captureTimerCb * pal_captureTimerCbPtr;
 
-void pal_registerPeriodicTimerCb(pal_periodicTimerCb * fn) {
-	pal_periodicTimerCbPtr = fn;
+void pal_registerPeriodicTimerCb(pal_periodicTimerCb* f) {
+	pal_periodicTimerCbPtr = f;
 }
 
-void pal_registerCaptureTimerCb(pal_captureTimerCb * fn) {
-	pal_captureTimerCbPtr = fn;
+void pal_registerCaptureTimerCb(pal_captureTimerCb* f) {
+	pal_captureTimerCbPtr = f;
 }
 
 void pal_init(void) {

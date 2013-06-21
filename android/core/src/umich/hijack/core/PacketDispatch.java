@@ -50,11 +50,11 @@ public class PacketDispatch {
 	}
 
 	public void receiveByte(int val) {
-		//System.out.print(val + " ");
+		System.out.print(val + " \n");
 		if (val == START_BYTE && _receiveState != ReceiveState.DATA_ESCAPE) {
 			// We got a start of packet byte. Clear the buffer and prepare to
 			// receiver the header.
-		//	System.out.println("RECEIVED START BYTE " + Integer.toHexString(val));
+			System.out.println("RECEIVED START BYTE " + Integer.toHexString(val));
 			_receiveState = ReceiveState.HEADER1;
 			_receiveBuffer.clear();
 			return;

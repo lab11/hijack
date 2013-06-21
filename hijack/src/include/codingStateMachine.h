@@ -35,11 +35,11 @@ struct csm_timer_struct {
 
 // Definition of callback function to be called
 // when a byte is received.
-typedef void    csm_byteReceiver(uint8_t);
+typedef void csm_byteReceiver (uint8_t);
 
 // Definition of callback function to be called when
-// a byte has been sent.
-typedef void    csm_byteSent(void);
+// a buffer has been sent.
+typedef void csm_bufferSent (void);
 
 // Receives a pair of timing data and current line
 // signal data from the comparator.
@@ -52,22 +52,11 @@ uint8_t csm_sendBuffer (uint8_t* buf, uint8_t len);
 
 // Registers a callback function to be executed when a
 // full byte has been received
-void csm_registerReceiveByte(csm_byteReceiver * func);
+void csm_registerReceiveBuffer (csm_byteReceiver* func);
 
 // Registers a callback function to be executed when a
 // byte has been transmitted.
-void csm_registerTransmitByte(csm_byteSent * func);
-
-// Called by the timer interrupt to advance the state of
-// the transmit machine and return what the timer should
-// set the level of the line to.
-uint8_t csm_advanceTransmitState(void);
-
-// We've split the advanceTransmit state into two
-// separate pieces, call the one above, set the line,
-// and then call this function to finish updating the
-// internal state. This was done for performance reasons.
-void csm_finishAdvanceTransmitState(void);
+void csm_registerTransmitBuffer (csm_bufferSent* func);
 
 // Initializes the coder's state.
 void csm_init(void);
@@ -89,7 +78,8 @@ typedef uint8_t csm_txDispatchFunc(void);
 #define CSM_TXSTATECOUNT 4
 enum csm_transmitStateEnum {
 	CSM_TXSTATE_IDLE,
-	CSM_TXSTATE_DATA
+	CSM_TXSTATE_DATA,
+	CSM_TXSTATE_PADDING
 };
 
 #define CSM_RXSTATECOUNT 3
@@ -124,11 +114,19 @@ struct csm_state_struct {
 	uint8_t txBitIdx;
 	// Which half of the manchester bit we are sending
 	uint8_t txBitHalf;
+	// Number of padding bits to put between bytes
+	uint8_t txPaddingBits;
 
 	// The value to set on the pin the next time the txTimerInterrupt fires.
 	// By using this we can determine what the pin should be in advance, and
 	// then immediately update the pin when the timer fires.
 	uint8_t txPinVal;
+
+	/// Callbacks
+	// Called after a buffer has been sent
+	csm_bufferSent* txCallback;
+
+
 
 
 	// Encoding state
@@ -148,7 +146,7 @@ struct csm_state_struct {
 
 	csm_rxDispatchFunc *        rxDispatch[CSM_RXSTATECOUNT];
 	csm_byteReceiver *          rxCallback;
-	csm_byteSent *              txCallback;
+
 
 	enum csm_receiveStateEnum   rxState;
 	uint16_t                    rxByte;

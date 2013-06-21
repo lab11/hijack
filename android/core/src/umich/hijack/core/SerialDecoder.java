@@ -258,6 +258,7 @@ public class SerialDecoder {
 	private void advanceReceiveDataState() {
 		if (_rxBits == 10) {
 			if (calcParity(_rxByte >> 1) ==  (_rxByte >> 9)) {
+			//	System.out.println("checksum PASSED.");
 				synchronized(this) {
 					_incoming.add((_rxByte >> 1) & 0xFF);
 					notifyBytesAvailable(_incoming.size());

@@ -63,9 +63,10 @@ uint8_t pbadMessage[] = {
 	0x02
 };
 
+
 uint16_t temp_buf[100] = {0};
 uint8_t buf_idx= 0;
-/*
+
 void periodicTimerFn (void) {
 	static uint8_t ats = 0;
 	//ats = csm_advanceTransmitState();
@@ -73,7 +74,7 @@ void periodicTimerFn (void) {
 	ats = (ats) ? 0 : 1;
 	//csm_finishAdvanceTransmitState();
 }
-*/
+
 void captureTimerFn(uint16_t elapsedTime, uint8_t isHigh) {
 	struct csm_timer_struct timingData;
 	timingData.elapsedTime = elapsedTime;
@@ -102,7 +103,8 @@ void packetSentCallback(void) {
 	else {
 		fe_writeTxBuffer(outMessage, 6);
 	}*/
-	util_delayMs(1000);
+
+	//util_delayMs(1000);
 	booted_packet.data[0]++;
 	fe_sendPacket(&booted_packet);
 }
@@ -142,21 +144,29 @@ void initializeSystem(void) {
 	// Initialize the transition-edge-length
 	// manchester decoder.
 	csm_init();
-	csm_registerReceiveByte(fe_handleByteReceived);
-	csm_registerTransmitByte(fe_handleByteSent);
+	csm_registerReceiveBuffer(fe_handleByteReceived);
+	csm_registerTransmitBuffer(fe_handleBufferSent);
 
 	// Initialize the framing engine to process
 	// the raw byte stream.
 	fe_init();
 	fe_registerPacketReceivedCb(packetReceivedCallback);
 	fe_registerPacketSentCb(packetSentCallback);
-	fe_registerByteSender(csm_sendBuffer);
+	fe_registerBufferSender(csm_sendBuffer);
 
 	pal_registerPeriodicTimerCb(csm_txTimerInterrupt);
-	pal_registerCaptureTimerCb(captureTimerFn);
+	//pal_registerPeriodicTimerCb(periodicTimerFn);
+//	pal_registerCaptureTimerCb(captureTimerFn);
+
+//	pal_setDigitalGpio(pal_gpio_mic, 0);
+//	pal_setDigitalGpio(pal_gpio_mic, 1);
+//	pal_setDigitalGpio(pal_gpio_mic, 0);
+//	pal_setDigitalGpio(pal_gpio_mic, 1);
 
 	// Start the interrupt-driven timers.
 	pal_startTimers();
+
+	pal_setDigitalGpio(pal_gpio_led, 1);
 
 	// Start the transmit callback-driven
 	// loop
@@ -169,6 +179,7 @@ void initializeSystem(void) {
 // and use wakeups.
 int main () {
 	initializeSystem();
+
 	// TODO: Add sleep commands!
 
 		/*while(1)
@@ -189,7 +200,7 @@ int main () {
 
 	// STOP FIX
 
-	while(1) {
+	while (1) {
 		//pal_setDigitalGpio(pal_gpio_led, 0);
 		//updateDigitalOutputBuffer();
 		//updateAnalogOutputBuffer();

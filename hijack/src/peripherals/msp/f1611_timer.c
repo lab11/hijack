@@ -36,7 +36,7 @@ void timer_init (void) {
     // Comp. A Connect External Signal to CA0
     // Comp. A Enable Output Filter
     // enable comparator CA0 on P2.3 (P40 on epic)
-	CACTL2 = P2CA0+CAF;   
+	CACTL2 = P2CA0+CAF;
 	// enable comparator
 	CACTL1 |= CAON;
 
@@ -78,7 +78,7 @@ uint8_t timer_readCaptureLine (void) {
 
 #pragma vector = TIMERA1_VECTOR
 __interrupt void Timer_A1 (void) {
-	
+
 	uint16_t captureReg = TAR;
 
 	if (captureReg > 5) {
@@ -99,7 +99,7 @@ __interrupt void Timer_B1 (void) {
 		pendingShutdown = 0;
 		pendingTimerStop = 0;
 		pendingStart = 1;
-		_BIS_SR_IRQ(LPM3_bits);	
+		_BIS_SR_IRQ(LPM3_bits);
 	}
 }
 
