@@ -89,7 +89,7 @@ void fe_handleByteSent(void) {
 	}
 
 	// Transmit the next byte
-	fe_state.byteSender(fe_state.outBuf[fe_state.outBufIdx++]);
+	//fe_state.byteSender(fe_state.outBuf[fe_state.outBufIdx++]);
 }
 
 // Send a packet. First it builds the outgoing packet in the outBuf and then
@@ -131,7 +131,7 @@ fe_error_e fe_sendPacket (packet_t* pkt) {
 	fe_state.outBufLen = fe_state.outBuf[1] + 4; // start byte, length, header, chksum
 
 	// Start sending the packet
-	fe_state.byteSender(fe_state.outBuf[fe_state.outBufIdx++]);
+	fe_state.byteSender(fe_state.outBuf, fe_state.outBufLen);
 
 	return FE_SUCCESS;
 }

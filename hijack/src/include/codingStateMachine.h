@@ -29,8 +29,8 @@
 // Struct to pass capture data to the
 // receive timing function.
 struct csm_timer_struct {
-    uint16_t elapsedTime;  // The number of timer counts between this and the last value
-    uint8_t signal; // If the signal line is low or high
+	uint16_t elapsedTime;  // The number of timer counts between this and the last value
+	uint8_t signal; // If the signal line is low or high
 };
 
 // Definition of callback function to be called
@@ -48,9 +48,9 @@ void csm_receiveTiming(struct csm_timer_struct * in);
 // Called by higher software, will send the passed in
 // byte by setting the state to transmit. Returns 1 if
 // already transmitting.
-uint8_t csm_sendByte(uint8_t out);
+uint8_t csm_sendBuffer (uint8_t* buf, uint8_t len);
 
-// Registers a callback function to be executed when a 
+// Registers a callback function to be executed when a
 // full byte has been received
 void csm_registerReceiveByte(csm_byteReceiver * func);
 
@@ -64,13 +64,20 @@ void csm_registerTransmitByte(csm_byteSent * func);
 uint8_t csm_advanceTransmitState(void);
 
 // We've split the advanceTransmit state into two
-// separate pieces, call the one above, set the line, 
+// separate pieces, call the one above, set the line,
 // and then call this function to finish updating the
 // internal state. This was done for performance reasons.
 void csm_finishAdvanceTransmitState(void);
 
 // Initializes the coder's state.
 void csm_init(void);
+
+inline uint8_t csm_int2man (uint8_t val);
+
+void csm_txTimerInterrupt (void);
+
+#define START_BIT 0
+#define IDLE_BIT 1
 
 ////////////////////////////////////////
 // Private Memebers:
@@ -80,45 +87,73 @@ typedef void    csm_rxDispatchFunc(void);
 typedef uint8_t csm_txDispatchFunc(void);
 
 #define CSM_TXSTATECOUNT 4
-enum csm_transmitStateEnum { 
-    csm_transmitState_idle,
-    csm_transmitState_pending,
-    csm_transmitState_data
+enum csm_transmitStateEnum {
+	CSM_TXSTATE_IDLE,
+	CSM_TXSTATE_DATA
 };
 
 #define CSM_RXSTATECOUNT 3
 enum csm_receiveStateEnum {
-    csm_receiveState_idle,
-    csm_receiveState_data,
-    csm_receiveState_dataNext
+	csm_receiveState_idle,
+	csm_receiveState_data,
+	csm_receiveState_dataNext
 };
+
+#define MAX_BUF_SIZE 128
 
 // Keep all the state associated with this module
 // in a struct.
 struct csm_state_struct {
-    // Encoding state
-    csm_txDispatchFunc *        txDispatch[CSM_TXSTATECOUNT]; 
-    enum csm_transmitStateEnum  txState;
-    uint16_t                    txByte; 
-    uint8_t                     txBytePosition;
-    uint8_t                     txBitPosition;
-    uint8_t                     txIdleCycles;
-    // ^ Actually stores start bit + parity too
 
-    // Decoding state
-    struct csm_timer_struct     lastRx;
-    struct csm_timer_struct     curRx;
-    uint16_t                    threshold;
-    uint16_t                    deltaT;
+	// Set to 1 if we are currently transmitting a packet
+	uint8_t transmittingPacket;
 
-    csm_rxDispatchFunc *        rxDispatch[CSM_RXSTATECOUNT];   
-    csm_byteReceiver *          rxCallback;
-    csm_byteSent *              txCallback;
+	// Storage for the raw, fully-formed packet from the upper layer that is to
+	// be transmitted
+	uint8_t rawTxBuf[MAX_BUF_SIZE];
+	// Array of the parity bits of each byte
+	uint8_t txParityBits[MAX_BUF_SIZE];
+	// Length of the raw out buffer
+	uint8_t txLen;
+	// Which byte from the raw buffer we are currently transmitting
+	uint8_t txByteIdx;
+	// Which bit of the byte we are transmitting
+	//   0 = start bit
+	//   1 = LSBit of the byte
+	//   9 = parity bit
+	uint8_t txBitIdx;
+	// Which half of the manchester bit we are sending
+	uint8_t txBitHalf;
 
-    enum csm_receiveStateEnum   rxState;
-    uint16_t                    rxByte;
-    uint8_t                     rxBits;
-} csm_state;
+	// The value to set on the pin the next time the txTimerInterrupt fires.
+	// By using this we can determine what the pin should be in advance, and
+	// then immediately update the pin when the timer fires.
+	uint8_t txPinVal;
+
+
+	// Encoding state
+	csm_txDispatchFunc *        txDispatch[CSM_TXSTATECOUNT];
+	enum csm_transmitStateEnum  txState;
+	uint16_t                    txByte;
+	uint8_t                     txBytePosition;
+	uint8_t                     txBitPosition;
+	uint8_t                     txIdleCycles;
+	// ^ Actually stores start bit + parity too
+
+	// Decoding state
+	struct csm_timer_struct     lastRx;
+	struct csm_timer_struct     curRx;
+	uint16_t                    threshold;
+	uint16_t                    deltaT;
+
+	csm_rxDispatchFunc *        rxDispatch[CSM_RXSTATECOUNT];
+	csm_byteReceiver *          rxCallback;
+	csm_byteSent *              txCallback;
+
+	enum csm_receiveStateEnum   rxState;
+	uint16_t                    rxByte;
+	uint8_t                     rxBits;
+} csm;
 
 // PRIVATE METHODS:
 

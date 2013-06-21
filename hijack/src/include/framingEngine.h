@@ -35,7 +35,7 @@
 
 typedef void fe_callback(void);
 typedef void fe_packetReceived(packet_t* pkt);
-typedef uint8_t fe_byteSender(uint8_t);
+typedef uint8_t fe_byteSender(uint8_t*, uint8_t);
 
 typedef enum fe_error {
 	FE_SUCCESS = 0,

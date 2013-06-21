@@ -22,6 +22,7 @@
 #include "codingStateMachine.h"
 #include "framingEngine.h"
 #include "packet.h"
+#include "utility.h"
 
 // TO FIX
  #include "interrupt.h"
@@ -64,15 +65,15 @@ uint8_t pbadMessage[] = {
 
 uint16_t temp_buf[100] = {0};
 uint8_t buf_idx= 0;
-
+/*
 void periodicTimerFn (void) {
-	uint8_t ats;
-	ats = csm_advanceTransmitState();
+	static uint8_t ats = 0;
+	//ats = csm_advanceTransmitState();
 	pal_setDigitalGpio(pal_gpio_mic, ats);
-	//ats = (ats) ? 0 : 1;
-	csm_finishAdvanceTransmitState();
+	ats = (ats) ? 0 : 1;
+	//csm_finishAdvanceTransmitState();
 }
-
+*/
 void captureTimerFn(uint16_t elapsedTime, uint8_t isHigh) {
 	struct csm_timer_struct timingData;
 	timingData.elapsedTime = elapsedTime;
@@ -149,9 +150,9 @@ void initializeSystem(void) {
 	fe_init();
 	fe_registerPacketReceivedCb(packetReceivedCallback);
 	fe_registerPacketSentCb(packetSentCallback);
-	fe_registerByteSender(csm_sendByte);
+	fe_registerByteSender(csm_sendBuffer);
 
-	pal_registerPeriodicTimerCb(periodicTimerFn);
+	pal_registerPeriodicTimerCb(csm_txTimerInterrupt);
 	pal_registerCaptureTimerCb(captureTimerFn);
 
 	// Start the interrupt-driven timers.
