@@ -101,8 +101,6 @@ fe_error_e fe_sendPacket (packet_t* pkt) {
 
 	// Fill the outgoing buffer from the given packet
 	fe_state.outBufIdx = 0;
-	fe_state.outBuf[fe_state.outBufIdx++] = START_BYTE;
-/*	fe_state.outBuf[fe_state.outBufIdx++] = pkt->length; // length
 	fe_state.outBuf[fe_state.outBufIdx] = (pkt->power_down & 0x1) << 7 |
 	                                      (pkt->ack_requested & 0x1) << 6 |
 	                                      (pkt->retries & 0x3) << 4 |
@@ -112,27 +110,17 @@ fe_error_e fe_sendPacket (packet_t* pkt) {
 	// Copy the data portion of the packet to the buffer, inserting escapes
 	// where necessary.
 	for (i=0; i<pkt->length; i++) {
-		if (pkt->data[i] == START_BYTE || pkt->data[i] == ESCAPE_BYTE) {
-			fe_state.outBuf[fe_state.outBufIdx++] = ESCAPE_BYTE;
-			sum += ESCAPE_BYTE;
-			fe_state.outBuf[1]++; // add 1 to length byte
-		}
-
 		fe_state.outBuf[fe_state.outBufIdx++] = pkt->data[i];
 		sum += pkt->data[i];
 	}
 	fe_state.outBuf[fe_state.outBufIdx] = sum; // checksum
-	fe_state.outBufIdx = 0;
-	fe_state.outBufLen = fe_state.outBuf[1] + 4; // start byte, length, header, chksum
+	fe_state.outBufLen = pkt->length + 2; // header, chksum
 
 	// Start sending the packet
 	error = fe_state.bufferSender(fe_state.outBuf, fe_state.outBufLen);
 	if (error > 0) {
 		return FE_FAIL;
 	}
-*/
-	fe_state.outBuf[1] = 0xCC;
-	error = fe_state.bufferSender(fe_state.outBuf, 2);
 
 	return FE_SUCCESS;
 }

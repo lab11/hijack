@@ -49,7 +49,7 @@ void timer_init (void) {
 	// TimerB - Periodic Timer
 	TBCTL = TBSSEL_2 + TBIE + TBCLR;
 	TBCCTL0 = 0;
-	TBCCR0 = DELTAT;
+	TBCCR0 = DELTAT*16;
 }
 
 void timer_start (void) {

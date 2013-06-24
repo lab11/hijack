@@ -121,6 +121,7 @@ public class SerialDecoder {
 
 			_rxByte = 0;
 			_rxBits = 1;
+			System.out.println("got start bit");
 		}
 	}
 

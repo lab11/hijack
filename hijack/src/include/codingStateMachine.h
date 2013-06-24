@@ -66,7 +66,8 @@ inline uint8_t csm_int2man (uint8_t val);
 void csm_txTimerInterrupt (void);
 
 #define START_BIT 0
-#define IDLE_BIT 1
+#define IDLE_BIT 0
+#define PREAMBLE_BIT 1
 
 ////////////////////////////////////////
 // Private Memebers:
@@ -78,8 +79,10 @@ typedef uint8_t csm_txDispatchFunc(void);
 #define CSM_TXSTATECOUNT 4
 enum csm_transmitStateEnum {
 	CSM_TXSTATE_IDLE,
+	CSM_TXSTATE_PREAMBLE,
+	CSM_TXSTATE_START,
 	CSM_TXSTATE_DATA,
-	CSM_TXSTATE_PADDING
+	CSM_TXSTATE_POSTAMBLE
 };
 
 #define CSM_RXSTATECOUNT 3
@@ -101,8 +104,6 @@ struct csm_state_struct {
 	// Storage for the raw, fully-formed packet from the upper layer that is to
 	// be transmitted
 	uint8_t rawTxBuf[MAX_BUF_SIZE];
-	// Array of the parity bits of each byte
-	uint8_t txParityBits[MAX_BUF_SIZE];
 	// Length of the raw out buffer
 	uint8_t txLen;
 	// Which byte from the raw buffer we are currently transmitting
@@ -114,8 +115,10 @@ struct csm_state_struct {
 	uint8_t txBitIdx;
 	// Which half of the manchester bit we are sending
 	uint8_t txBitHalf;
-	// Number of padding bits to put between bytes
-	uint8_t txPaddingBits;
+	// How many bits to send in the preamble
+	uint8_t preambleBitLen;
+	// How long should the mic line be held low after a packet
+	uint8_t postambleBitLen;
 
 	// The value to set on the pin the next time the txTimerInterrupt fires.
 	// By using this we can determine what the pin should be in advance, and

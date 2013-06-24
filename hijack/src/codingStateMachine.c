@@ -173,15 +173,13 @@ uint8_t csm_sendBuffer (uint8_t* buf, uint8_t len) {
 	csm.txByteIdx = 0;
 	csm.txBitIdx = 0;
 	csm.txBitHalf = 0;
-	csm.txPaddingBits = 10;
-
-
 
 	// Setup the pin value to be the start bit
-	csm.txPinVal = csm_int2man(IDLE_BIT);
+	csm.txPinVal = csm_int2man(PREAMBLE_BIT);
 
 	// Mark the state as data to start things sending
-	csm.txState = CSM_TXSTATE_PADDING;
+	csm.txState = CSM_TXSTATE_PREAMBLE;
+	csm.preambleBitLen = 4;
 
 	return 0;
 }
@@ -191,72 +189,86 @@ uint8_t csm_sendBuffer (uint8_t* buf, uint8_t len) {
 void csm_txTimerInterrupt (void) {
 	pal_setDigitalGpio(pal_gpio_mic, csm.txPinVal);
 
+	// In all cases if we need to send the other half of the Manchester bit
+	// just do it.
+	if (csm.txBitHalf == 0) {
+		csm.txBitHalf = 1;
+		csm.txPinVal = (csm.txPinVal) ? 0 : 1;
+		return;
+	}
+
 	// Update txPinVal for the next time this interrupt fires
 	switch (csm.txState) {
 		case CSM_TXSTATE_IDLE:
-			// Just keep alternating the signal
-			csm.txPinVal = (csm.txPinVal) ? 0 : 1; // Flip the bit
+			csm.txBitHalf = 1;
+			csm.txPinVal = 0;
+			break;
+
+		case CSM_TXSTATE_PREAMBLE:
+			csm.txBitHalf = 0;
+			csm.preambleBitLen--;
+
+			if (csm.preambleBitLen == 0) {
+				// send the start bit after the preamble
+				csm.txPinVal = csm_int2man(START_BIT);
+				csm.txState = CSM_TXSTATE_START;
+			} else {
+				csm.txPinVal = csm_int2man(PREAMBLE_BIT);
+			}
+			break;
+
+		case CSM_TXSTATE_START:
+			csm.txBitHalf = 0;
+			csm.txPinVal = csm_int2man(csm.rawTxBuf[0] & 0x1);
+			csm.txState = CSM_TXSTATE_DATA;
 			break;
 
 		case CSM_TXSTATE_DATA:
-			if (csm.txBitHalf == 0) {
-				// still need to send the second half of the manchester bit
-				csm.txBitHalf = 1;
-				csm.txPinVal = (csm.txPinVal) ? 0 : 1;
-				return;
-			}
-
 			// Just sent the second half, need to move to the next bit
 			csm.txBitHalf = 0;
 			csm.txBitIdx++;
 
 			//gpio_toggle(LED_PORT, LED_PIN);
 
-			if (csm.txBitIdx == 9) {
-				// Send the parity bit next
-				csm.txPinVal = csm_int2man(csm.txParityBits[csm.txByteIdx]);
-			} else if (csm.txBitIdx < 9) {
+			if (csm.txBitIdx < 8) {
 				// Send the correct data bit
 				csm.txPinVal = csm_int2man(
-					(csm.rawTxBuf[csm.txByteIdx] >> (csm.txBitIdx-1)) & 0x1);
+					(csm.rawTxBuf[csm.txByteIdx] >> csm.txBitIdx) & 0x1);
 			} else {
 				// Either done or need to move onto the next byte
 				csm.txByteIdx++;
 
 				if (csm.txByteIdx < csm.txLen) {
-					// Starting a new byte, send the start bit
-				//	csm.txBitIdx = 0;
-					csm.txPinVal = csm_int2man(IDLE_BIT);
-					csm.txPaddingBits = 16;
-					csm.txState = CSM_TXSTATE_PADDING;
+					// Starting a new byte, send the first bit
+					csm.txBitIdx = 0;
+					csm.txPinVal = csm_int2man(csm.rawTxBuf[csm.txByteIdx] & 0x1);
 				} else {
 					// Finished sending the packet, move to the idle state
-					csm.txState = CSM_TXSTATE_IDLE;
-					csm.transmittingPacket = 0;
-					csm.txPinVal = csm_int2man(IDLE_BIT);
-					csm.txCallback();
+					csm.txState = CSM_TXSTATE_POSTAMBLE;
+					csm.postambleBitLen = 8;
+					csm.txPinVal = 0;
+					csm.txBitHalf = 1;
+//					csm.transmittingPacket = 0;
+//					csm.txCallback();
 				}
 
 			}
 			break;
 
-		case CSM_TXSTATE_PADDING:
-			if (csm.txBitHalf == 0) {
-				// still need to send the second half of the manchester bit
-				csm.txBitHalf = 1;
-				csm.txPinVal = (csm.txPinVal) ? 0 : 1;
-				return;
-			}
+		// Make sure there is a period of no transitions after the packet is
+		// sent. This allows the phone to know that the packet is done being
+		// transmitted.
+		case CSM_TXSTATE_POSTAMBLE:
+			csm.postambleBitLen--;
 
-			csm.txBitHalf = 0;
-
-			if (csm.txPaddingBits == 0) {
-				csm.txBitIdx = 0;
-				csm.txPinVal = csm_int2man(START_BIT);
-				csm.txState = CSM_TXSTATE_DATA;
-			} else {
+			if (csm.postambleBitLen == 0) {
+				csm.txState = CSM_TXSTATE_IDLE;
 				csm.txPinVal = csm_int2man(IDLE_BIT);
-				csm.txPaddingBits--;
+				csm.transmittingPacket = 0;
+				csm.txCallback();
+			} else {
+				csm.txBitHalf = 1;
+				csm.txPinVal = 0;
 			}
 			break;
 
