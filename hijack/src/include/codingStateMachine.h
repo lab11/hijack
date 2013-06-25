@@ -101,6 +101,9 @@ struct csm_state_struct {
 	// Set to 1 if we are currently transmitting a packet
 	uint8_t transmittingPacket;
 
+	// Whether the mic pin is configured as an output or input
+	uint8_t txPinOutput;
+
 	// Storage for the raw, fully-formed packet from the upper layer that is to
 	// be transmitted
 	uint8_t rawTxBuf[MAX_BUF_SIZE];

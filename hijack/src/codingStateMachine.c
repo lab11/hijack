@@ -18,6 +18,7 @@
 #include "codingStateMachine.h"
 #include "pal.h"
 #include "hardware.h"
+#include "gpio.h"
 
 #include <msp430.h>
 #include <stdio.h>
@@ -175,6 +176,8 @@ uint8_t csm_sendBuffer (uint8_t* buf, uint8_t len) {
 	csm.txBitHalf = 0;
 
 	// Setup the pin value to be the start bit
+	gpio_init(MIC_PORT, MIC_PIN, GPIO_OUT);
+	csm.txPinOutput = 1;
 	csm.txPinVal = csm_int2man(PREAMBLE_BIT);
 
 	// Mark the state as data to start things sending
@@ -187,7 +190,9 @@ uint8_t csm_sendBuffer (uint8_t* buf, uint8_t len) {
 // Called by the periodic timer to signal that half of a symbol period has
 // elapsed. This is used to output the manchester encoded signal.
 void csm_txTimerInterrupt (void) {
-	pal_setDigitalGpio(pal_gpio_mic, csm.txPinVal);
+	if (csm.txPinOutput) {
+		pal_setDigitalGpio(pal_gpio_mic, csm.txPinVal);
+	}
 
 	// In all cases if we need to send the other half of the Manchester bit
 	// just do it.
@@ -200,8 +205,8 @@ void csm_txTimerInterrupt (void) {
 	// Update txPinVal for the next time this interrupt fires
 	switch (csm.txState) {
 		case CSM_TXSTATE_IDLE:
-			csm.txBitHalf = 1;
-			csm.txPinVal = 0;
+			gpio_init(MIC_PORT, MIC_PIN, GPIO_IN);
+			csm.txPinOutput = 0;
 			break;
 
 		case CSM_TXSTATE_PREAMBLE:
@@ -261,9 +266,12 @@ void csm_txTimerInterrupt (void) {
 		case CSM_TXSTATE_POSTAMBLE:
 			csm.postambleBitLen--;
 
-			if (csm.postambleBitLen == 0) {
+			if (csm.postambleBitLen == 1) {
+				// Need a spike at the end to signal the end of the packet
+				csm.txBitHalf = 0;
+				csm.txPinVal = 1;
+			} else if (csm.postambleBitLen == 0) {
 				csm.txState = CSM_TXSTATE_IDLE;
-				csm.txPinVal = csm_int2man(IDLE_BIT);
 				csm.transmittingPacket = 0;
 				csm.txCallback();
 			} else {

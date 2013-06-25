@@ -79,12 +79,12 @@ public class AudioReceiver {
 	private IncomingSink _sink = null;
 
 	// For Audio Output
-    AudioTrack _audioTrack;
-    Thread _outputThread;
-
-    // For Audio Input
-    AudioRecord _audioRecord;
-    Thread _inputThread;
+	AudioTrack _audioTrack;
+	Thread _outputThread;
+	
+	// For Audio Input
+	AudioRecord _audioRecord;
+	Thread _inputThread;
 
 	///////////////////////////////////////////////
 	// Output state
@@ -116,6 +116,11 @@ public class AudioReceiver {
 
 	private enum SearchState { ZERO_CROSS, NEGATIVE_PEAK, POSITIVE_PEAK };
 	private SearchState _searchState = SearchState.ZERO_CROSS;
+	
+	private enum siglev {HIGH, LOW, FLOATING};
+	private siglev inSignalLevel = siglev.FLOATING;
+	
+	private LimitedArray lastInValues = new LimitedArray(200);
 
 	// Part of a circular buffer to find the peak of each
 	// signal.
@@ -232,21 +237,74 @@ public class AudioReceiver {
 		// We are basically trying to figure out where the edges are here,
 		// in order to find the distance between them and pass that on to
 		// the higher levels.
-		double meanVal = 0.0;
+		//double meanVal = 0.0;
 
 		for (int i = 0; i < shortsRead; i++) {
+			int val = _recBuffer[i];
 
-			double movingAvg = addAndReturnMean(_recBuffer[i]);
-			double movingBias = addAndReturnBias(_recBuffer[i]);
+		//	double movingAvg = addAndReturnMean(val);
+		//	double movingBias = addAndReturnBias(val);
 
-			meanVal = movingAvg - movingBias;
+			//meanVal = movingAvg - movingBias;
 
 			if (_debug) {
-				writeDebugString(Double.toString(movingAvg) + "," + Double.toString(movingBias) + "," + _recBuffer[i]);
+				writeDebugString("" + val);
 			}
 
 			_edgeDistance++;
+			
+		/*	lastInValues.insert(val);
+			if (inSignalLevel != siglev.FLOATING) {
+				int lastInValuesAvg = lastInValues.average();
+				//int lastInValuesVar = lastInValues.variance();
+				if (lastInValuesAvg > -2000 &&
+					lastInValuesAvg < 2000) {
+				//	lastInValuesVar < 200 &&
+				//	lastInValuesVar > 200) {
+					inSignalLevel = siglev.FLOATING;
+					System.out.println("RESET TO FLOATING");
+				}
+			}*/
+			
+			if (inSignalLevel == siglev.FLOATING) {
+				if (val < 4000) {
+					// Let's call this value equivalent to 0 (GND).
+					// This is a low to high transition! Signal the upper layer
+					_sink.handleNextBit(_edgeDistance, EdgeType.FALLING); // Not sure why the edge is backwards
+					_edgeDistance = 0;
+					System.out.println("floating to low");
+					inSignalLevel = siglev.LOW;
+					
+				} else if (val > 4000) {
+					// This is a high to low transition! Signal the upper layer
+					_sink.handleNextBit(_edgeDistance, EdgeType.RISING); // Not sure why the edge is backward
+					_edgeDistance = 0;
+					System.out.println("floating to high");
+					inSignalLevel = siglev.HIGH;
+				}
+			} else if (inSignalLevel == siglev.HIGH) {
+				if (val < 0) {
+					// Let's call this value equivalent to 0 (GND).
 
+					// This is a low to high transition! Signal the upper layer
+					_sink.handleNextBit(_edgeDistance, EdgeType.FALLING); // Not sure why the edge is backwards
+					_edgeDistance = 0;
+					System.out.println("high to low");
+					inSignalLevel = siglev.LOW;
+				}
+				
+			} else {
+				if (val > 0) {
+					// This is a high to low transition! Signal the upper layer
+					_sink.handleNextBit(_edgeDistance, EdgeType.RISING); // Not sure why the edge is backward
+					_edgeDistance = 0;
+					System.out.println("low to high");
+					inSignalLevel = siglev.HIGH;
+				}
+			}
+			
+
+/*
 			// Cold boot we simply set the search based on
 			// where the first region is located.
 			if (_searchState == SearchState.ZERO_CROSS) {
@@ -255,12 +313,12 @@ public class AudioReceiver {
 
 			// Have we just seen a zero transition?
 			if ((meanVal < 0 && _searchState == SearchState.POSITIVE_PEAK) ||
-					(meanVal > 0 && _searchState == SearchState.NEGATIVE_PEAK)) {
+				(meanVal > 0 && _searchState == SearchState.NEGATIVE_PEAK)) {
 
 				_sink.handleNextBit(_edgeDistance, _searchState == SearchState.POSITIVE_PEAK);
 				_edgeDistance = 0;
 				_searchState = (_searchState == SearchState.NEGATIVE_PEAK) ? SearchState.POSITIVE_PEAK : SearchState.NEGATIVE_PEAK;
-			}
+			}*/
 		}
 	}
 
@@ -311,29 +369,29 @@ public class AudioReceiver {
 	//       the responsible subfunctions. NO code here.
 	///////////////////////////////////////////////
 
-    Runnable _outputGenerator = new Runnable() {
-        @Override
+	Runnable _outputGenerator = new Runnable() {
+		@Override
 		public void run() {
-        	Thread.currentThread().setPriority(Thread.NORM_PRIORITY);
-
-            while (!_stop) {
-            	updateOutputBuffer();
-                _audioTrack.write(_stereoBuffer, 0, _stereoBuffer.length);
-            }
-        }
-    };
-
-    Runnable _inputProcessor = new Runnable() {
-    	@Override
+			Thread.currentThread().setPriority(Thread.NORM_PRIORITY);
+		
+			while (!_stop) {
+				updateOutputBuffer();
+				_audioTrack.write(_stereoBuffer, 0, _stereoBuffer.length);
+			}
+		}
+	};
+	
+	Runnable _inputProcessor = new Runnable() {
+		@Override
 		public void run() {
-    		Thread.currentThread().setPriority(Thread.MIN_PRIORITY);
-
-    		while (!_stop) {
-    			int shortsRead = _audioRecord.read(_recBuffer, 0, _recBuffer.length);
-    			processInputBuffer(shortsRead);
-    		}
-    	}
-    };
+			Thread.currentThread().setPriority(Thread.MIN_PRIORITY);
+	
+			while (!_stop) {
+				int shortsRead = _audioRecord.read(_recBuffer, 0, _recBuffer.length);
+				processInputBuffer(shortsRead);
+			}
+		}
+	};
 
 	///////////////////////////////////////////////
 	// Public Interface
@@ -406,6 +464,8 @@ public class AudioReceiver {
 				boundToShort(Math.sin((double)(i + bufferSize/2) * (double)4 * Math.PI * _ioBaseFrequency / _sampleFrequency) * Short.MAX_VALUE)
 			);
 		}
+		
+		inSignalLevel = siglev.FLOATING;
 
 		_isInitialized = true;
 	}
@@ -464,15 +524,15 @@ public class AudioReceiver {
 
 	private void attachAudioResources() {
 		_audioTrack = new AudioTrack(AudioManager.STREAM_MUSIC,
-				_sampleFrequency, AudioFormat.CHANNEL_OUT_STEREO,
-                AudioFormat.ENCODING_PCM_16BIT, 44100,
-                AudioTrack.MODE_STREAM);
+			_sampleFrequency, AudioFormat.CHANNEL_OUT_STEREO,
+			AudioFormat.ENCODING_PCM_16BIT, 44100,
+			AudioTrack.MODE_STREAM);
 
 		int recBufferSize =
 				AudioRecord.getMinBufferSize(_sampleFrequency, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT);
 		_audioRecord = new AudioRecord(MediaRecorder.AudioSource.DEFAULT,
-		        _sampleFrequency, AudioFormat.CHANNEL_IN_MONO,
-		        AudioFormat.ENCODING_PCM_16BIT, recBufferSize);
+			_sampleFrequency, AudioFormat.CHANNEL_IN_MONO,
+			AudioFormat.ENCODING_PCM_16BIT, recBufferSize);
 
 		_recBuffer = new short[recBufferSize * 10];
 	}
@@ -488,13 +548,13 @@ public class AudioReceiver {
 		_recBuffer = null;
 	}
 
-    private double boundToShort(double in) {
-        return (in >= 32786.0) ? 32786.0 : (in <= -32786.0 ? -32786.0 : in );
-    }
-
-    private int getBufferSize() {
-    	return _sampleFrequency / _ioBaseFrequency / 2;
-    }
+	private double boundToShort(double in) {
+		return (in >= 32786.0) ? 32786.0 : (in <= -32786.0 ? -32786.0 : in );
+	}
+	
+	private int getBufferSize() {
+		return _sampleFrequency / _ioBaseFrequency / 2;
+	}
 
 
 }

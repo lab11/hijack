@@ -104,7 +104,7 @@ void packetSentCallback(void) {
 		fe_writeTxBuffer(outMessage, 6);
 	}*/
 
-	util_delayMs(1000);
+	util_delayMs(5000);
 	booted_packet.data[0]++;
 	fe_sendPacket(&booted_packet);
 }
