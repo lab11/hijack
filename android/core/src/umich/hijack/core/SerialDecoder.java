@@ -334,7 +334,7 @@ public class SerialDecoder {
 			System.out.println("Tran: " + transistionPeriod + " HL: " + edge);
 		//	_currentEdgeLength = transistionPeriod;
 		//	_currentEdgeHigh = isHighToLow;
-			switch (rxState) {
+		/*	switch (rxState) {
 				case IDLE:
 					receiveIdle(transistionPeriod, edge);
 					break;
@@ -343,7 +343,7 @@ public class SerialDecoder {
 					break;
 				default:
 					break;
-			}
+			}*/
 		//	_lastEdgeLength = _currentEdgeLength;*/
 		}
 	};

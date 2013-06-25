@@ -23,6 +23,7 @@ import java.io.IOException;
 import java.text.SimpleDateFormat;
 import java.util.Date;
 
+import android.annotation.SuppressLint;
 import android.media.AudioFormat;
 import android.media.AudioManager;
 import android.media.AudioRecord;
@@ -114,25 +115,25 @@ public class AudioReceiver {
 	// Input state
 	///////////////////////////////////////////////
 
-	private enum SearchState { ZERO_CROSS, NEGATIVE_PEAK, POSITIVE_PEAK };
-	private SearchState _searchState = SearchState.ZERO_CROSS;
+//	private enum SearchState { ZERO_CROSS, NEGATIVE_PEAK, POSITIVE_PEAK };
+//	private SearchState _searchState = SearchState.ZERO_CROSS;
 	
 	private enum siglev {HIGH, LOW, FLOATING};
 	private siglev inSignalLevel = siglev.FLOATING;
 	
-	private LimitedArray lastInValues = new LimitedArray(200);
+//	private LimitedArray lastInValues = new LimitedArray(200);
 
 	// Part of a circular buffer to find the peak of each
 	// signal.
-	private final int _toMean[] = new int[] {0, 0, 0};
-	private int _toMeanPos = 0;
+//	private final int _toMean[] = new int[] {0, 0, 0};
+//	private int _toMeanPos = 0;
 
 	// Part of a circular buffer to keep track of any
 	// bias in the signal over the past 144 measurements
-	private final int _biasArray[] = new int[3600];
-	private boolean _biasArrayFull = false;
-	private double _biasMean = 0.0;
-	private int _biasArrayPos = 0;
+//	private final int _biasArray[] = new int[3600];
+//	private boolean _biasArrayFull = false;
+//	private double _biasMean = 0.0;
+//	private int _biasArrayPos = 0;
 
 	// Keeps track of the maximal value between two
 	// zero-crossings to find the distance between
@@ -147,6 +148,7 @@ public class AudioReceiver {
 	private FileWriter _debugOut;
 	private final boolean _debug = false;
 
+	@SuppressLint("SimpleDateFormat")
 	private String getDebugFileName() {
 		File root = Environment.getExternalStorageDirectory();
 
@@ -238,6 +240,8 @@ public class AudioReceiver {
 		// in order to find the distance between them and pass that on to
 		// the higher levels.
 		//double meanVal = 0.0;
+		
+		System.out.println("got input buffer!");
 
 		for (int i = 0; i < shortsRead; i++) {
 			int val = _recBuffer[i];
@@ -269,36 +273,34 @@ public class AudioReceiver {
 			if (inSignalLevel == siglev.FLOATING) {
 				if (val < 4000) {
 					// Let's call this value equivalent to 0 (GND).
-					// This is a low to high transition! Signal the upper layer
-					_sink.handleNextBit(_edgeDistance, EdgeType.FALLING); // Not sure why the edge is backwards
+					_sink.handleNextBit(_edgeDistance, EdgeType.FALLING);
 					_edgeDistance = 0;
-					System.out.println("floating to low");
+					//System.out.println("floating to low");
 					inSignalLevel = siglev.LOW;
 					
 				} else if (val > 4000) {
 					// This is a high to low transition! Signal the upper layer
-					_sink.handleNextBit(_edgeDistance, EdgeType.RISING); // Not sure why the edge is backward
+					_sink.handleNextBit(_edgeDistance, EdgeType.RISING);
 					_edgeDistance = 0;
-					System.out.println("floating to high");
+					//System.out.println("floating to high");
 					inSignalLevel = siglev.HIGH;
 				}
 			} else if (inSignalLevel == siglev.HIGH) {
-				if (val < 0) {
-					// Let's call this value equivalent to 0 (GND).
+				if (val < 5000) {
 
 					// This is a low to high transition! Signal the upper layer
-					_sink.handleNextBit(_edgeDistance, EdgeType.FALLING); // Not sure why the edge is backwards
+					_sink.handleNextBit(_edgeDistance, EdgeType.FALLING);
 					_edgeDistance = 0;
-					System.out.println("high to low");
+					//System.out.println("high to low");
 					inSignalLevel = siglev.LOW;
 				}
 				
 			} else {
-				if (val > 0) {
+				if (val > 5000) {
 					// This is a high to low transition! Signal the upper layer
-					_sink.handleNextBit(_edgeDistance, EdgeType.RISING); // Not sure why the edge is backward
+					_sink.handleNextBit(_edgeDistance, EdgeType.RISING);
 					_edgeDistance = 0;
-					System.out.println("low to high");
+					//System.out.println("low to high");
 					inSignalLevel = siglev.HIGH;
 				}
 			}
@@ -325,7 +327,7 @@ public class AudioReceiver {
 	///////////////////////////////////////////////
 	// Incoming Bias and Smoothing Functions
 	///////////////////////////////////////////////
-
+/*
 	private double addAndReturnMean(int in) {
 		_toMean[_toMeanPos++] = in;
 		_toMeanPos = _toMeanPos % _toMean.length;
@@ -362,7 +364,7 @@ public class AudioReceiver {
 
 		return _biasMean;
 	}
-
+*/
 	///////////////////////////////////////////////
 	// Audio Interface
 	// Note: these exist primarily to pass control to
