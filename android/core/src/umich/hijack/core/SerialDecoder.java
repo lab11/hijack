@@ -27,10 +27,10 @@ public class SerialDecoder {
 	private enum receiveState { IDLE, DATA, DATANEXT };
 
 	// Receiver State
-	private int _lastEdgeLength = 0;
+	private final int _lastEdgeLength = 0;
 
-	private int _currentEdgeLength = 0;
-	private boolean _currentEdgeHigh = false;
+	private final int _currentEdgeLength = 0;
+	private final boolean _currentEdgeHigh = false;
 
 	//TODO: REFACTOR THIS OUT
 	private int _ioBaseFrequency = 613;
@@ -42,24 +42,26 @@ public class SerialDecoder {
 
 	// FOR THE MSP430F1611:
 	//private int _threshold = 12;
-	
+
 	private enum edgeSpace {SINGLE, DOUBLE};
 	private enum edgeResult {BIT, NULL};
-	
+
 	// Keep track of the times between edges in the preamble of the message.
 	// This lets us determine the baud rate on the fly.
-	private LimitedArray timesBetweenEdges = new LimitedArray(4);
+	private final LimitedArray timesBetweenEdges = new LimitedArray(4);
 	// The average of timesBetweenEdges
 	private int avgEdgePeriod;
 	// Whether the last edge let us set a bit or not
 	private edgeResult lastEdgeResult = edgeResult.BIT;
 
-	private int _deltaT = 0;
+	private final int _deltaT = 0;
 
 	private receiveState rxState = receiveState.IDLE;
 
-	private int _rxByte = 0;
-	private int _rxBits = 0;
+	private final Packet inPacket = new Packet();
+
+	private final int _rxByte = 0;
+	private final int _rxBits = 0;
 
 	// Transmit State
 	private TransmitState _txState = TransmitState.IDLE;
@@ -124,7 +126,7 @@ public class SerialDecoder {
 	private void receiveIdle (int timeSinceLastEdge, EdgeType edge) {
 		avgEdgePeriod = timesBetweenEdges.average();
 		//System.out.println("AVERAGE TIME: " + avgEdgePeriod);
-		
+
 		// Check if we:
 		//  - just saw a rising edge
 		//  - and that that edge was twice as far from the previous edge as the
@@ -139,8 +141,16 @@ public class SerialDecoder {
 			 // This is a start bit!
 			rxState = receiveState.DATA;
 			System.out.println("got start bit");
-		
+			inPacket.reset();
+
 		} else {
+
+			if (timeSinceLastEdge > 25 && timeSinceLastEdge < 35 &&
+				edge == EdgeType.RISING) {
+				// Maybe this should have been a start bit?
+				System.out.println("possible start bit: " + timesBetweenEdges.variance() + " " + avgEdgePeriod + " " + timeSinceLastEdge);
+			}
+
 			// Still waiting for the start bit, just record this edge so we
 			// can continue to track the average time between edges (aka the
 			// baud rate).
@@ -161,7 +171,7 @@ public class SerialDecoder {
 	//   | 1 period             | falling   | -                    || 1      |
 	private void receiveData (int timeSinceLastEdge, EdgeType edge) {
 		edgeSpace thisEdgeSpacing; // Number of bauds from the previous edge
-		
+
 		// Determine if the edge we got is a single or double baud
 		if (isClose(avgEdgePeriod, timeSinceLastEdge)) {
 			thisEdgeSpacing = edgeSpace.SINGLE;
@@ -171,19 +181,22 @@ public class SerialDecoder {
 			// End of the packet
 			rxState = receiveState.IDLE;
 			System.out.println("EOP");
+			inPacket.processReceivedPacket();
 			return;
 		} else {
 			// This is a spurious edge
 			return;
 		}
-		
+
 		if (thisEdgeSpacing == edgeSpace.DOUBLE) {
 			if (edge == EdgeType.FALLING) {
 				// add a 1 to the packet
 				System.out.println("1");
+				inPacket.addBit(1);
 			} else { // rising edge
 				// add a 0 to the packet
 				System.out.println("0");
+				inPacket.addBit(0);
 			}
 			lastEdgeResult = edgeResult.BIT;
 		} else if (thisEdgeSpacing == edgeSpace.SINGLE) {
@@ -194,9 +207,11 @@ public class SerialDecoder {
 				if (edge == EdgeType.RISING) {
 					// This edge is a 0
 					System.out.println("0");
+					inPacket.addBit(0);
 				} else { // falling edge
 					// This edge is a 1
 					System.out.println("1");
+					inPacket.addBit(1);
 				}
 				lastEdgeResult = edgeResult.BIT;
 			}
@@ -334,7 +349,7 @@ public class SerialDecoder {
 			System.out.println("Tran: " + transistionPeriod + " HL: " + edge);
 		//	_currentEdgeLength = transistionPeriod;
 		//	_currentEdgeHigh = isHighToLow;
-		/*	switch (rxState) {
+			switch (rxState) {
 				case IDLE:
 					receiveIdle(transistionPeriod, edge);
 					break;
@@ -343,7 +358,7 @@ public class SerialDecoder {
 					break;
 				default:
 					break;
-			}*/
+			}
 		//	_lastEdgeLength = _currentEdgeLength;*/
 		}
 	};
