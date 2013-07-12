@@ -96,6 +96,10 @@ public class Packet {
 			System.out.println("pkt checksum passed");
 		} else {
 			System.out.println("pkt FAILED checksum");
+			for (int i=0; i<numBytes; i++) {
+				System.out.print("0x" + Integer.toHexString(inBuf[i]) + " ");
+			}
+			System.out.println();
 		}
 	}
 
