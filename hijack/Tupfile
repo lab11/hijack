@@ -4,3 +4,6 @@ include global.tup
 : <objs> |> @(CC) %<objs> $(LDFLAGS) -o %o |> @(TARGET).elf | @(TARGET).map {elf}
 : {elf}  |> ^ Calculating Size ^ echo ">>>> Size of Firmware <<<<" && @(SIZE) %f |>
 : {elf}  |> @(OBJCOPY) -O ihex %f %o                        |> %B.hex
+
+.gitignore
+
