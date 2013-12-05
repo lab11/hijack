@@ -60,6 +60,11 @@ public class Packet {
 		int byteIdx = inBitOffset / 8;
 		int bitIdx = inBitOffset - (byteIdx*8);
 
+		if (byteIdx > MAX_PACKET_LEN) {
+			// TODO: handle long packets better than this
+			return;
+		}
+
 		inBuf[byteIdx] |= (1 << bitIdx);
 		inBitOffset++;
 	}
@@ -71,13 +76,16 @@ public class Packet {
 			// This is an invalid packet.
 			// Need to get at least the header and checksum bytes
 			return;
+		} else if (numBytes > MAX_PACKET_LEN) {
+			// Too long
+			return;
 		}
 
 		// Disect header
-		powerDown = ((inBuf[0] & PKT_POWERDOWN_MASK) >> PKT_POWERDOWN_OFFSET) == 1;
+		powerDown    = ((inBuf[0] & PKT_POWERDOWN_MASK) >> PKT_POWERDOWN_OFFSET) == 1;
 		ackRequested = ((inBuf[0] & PKT_ACKREQ_MASK) >> PKT_ACKREQ_OFFSET) == 1;
-		sentCount = ((inBuf[0] & PKT_RETRIES_MASK) >> PKT_RETRIES_OFFSET) + 1;
-		typeId = (inBuf[0] & PKT_TYPE_MASK);
+		sentCount    = ((inBuf[0] & PKT_RETRIES_MASK) >> PKT_RETRIES_OFFSET) + 1;
+		typeId       = (inBuf[0] & PKT_TYPE_MASK);
 
 		// Set length
 		length = numBytes - 2;
@@ -94,6 +102,18 @@ public class Packet {
 		// Check checksum
 		if ((sum & 0xFF) == inBuf[numBytes-1]) {
 			System.out.println("pkt checksum passed");
+
+			// Print the received packet
+			System.out.println("PACKET");
+			System.out.println("   power down: " + powerDown);
+			System.out.println("   ack req:    " + ackRequested);
+			System.out.println("   sent count: " + sentCount);
+			System.out.println("   type id:    " + typeId);
+			System.out.print  ("   data:       ");
+			for (int i=0; i<length; i++) {
+				System.out.print(Integer.toHexString(data[i]) + " ");
+			}
+			System.out.println();
 		} else {
 			System.out.println("pkt FAILED checksum");
 			for (int i=0; i<numBytes; i++) {

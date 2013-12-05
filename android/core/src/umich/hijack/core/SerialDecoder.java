@@ -140,7 +140,7 @@ public class SerialDecoder {
 			timesBetweenEdges.variance() < 4) {
 			 // This is a start bit!
 			rxState = receiveState.DATA;
-			System.out.println("got start bit");
+			System.out.println("got start bit " + timesBetweenEdges.variance() + " " + avgEdgePeriod + " " + timeSinceLastEdge);
 			inPacket.reset();
 
 		} else {
