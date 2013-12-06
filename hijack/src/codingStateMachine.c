@@ -30,133 +30,163 @@ int txTempBit = 0;
 // Region: Receive state machine
 /////////////////////////////////
 
-void csm_receiveIdle(void) {
-	// If we see a 2T high period, it's a start bit!
-	csm.threshold = csm.lastRx.elapsedTime * 4 / 10;
+// Called on each received edge that occurs between packets.
+void csm_receiveIdle (csm_rx_input_t rx) {
 
-	if (csm.curRx.signal == 0 &&
-		csm_isWithinThreshold(csm.curRx.elapsedTime / 2,
-								csm.lastRx.elapsedTime)) {
+	// Start checking if we have found a start bit
+	if (rxPreambleReceivedEdges >= RX_PREAMBLE_LEN && // seen the minimum preamble
+	    rx.signal == 1 && // rising edge
+	   ) {
+	   	uint32_t sum, average;
+		uint16_t max, min;
 
-		// we'll use the first time as a reference for
-		// framing the rest of this byte.
-		csm.deltaT = csm.lastRx.elapsedTime;
-		//TODO: FIX THIS, THIS IS AWFUL
-		TBCCR0 = csm.lastRx.elapsedTime;
-
-		csm.rxState = csm_receiveState_data;
-
-		// We include the start bit in the rx bits
-		// to make the algorithm a little simpler.
-		csm.rxByte  = 0;
-		csm.rxBits = 1;
-	}
-}
-
-void csm_receiveData(void) {
-	// Possible ways to receive data:
-	// Two short pulses => Same bit as last bit
-	// One long pulse => different bit
-	// Anything else => nope nope nope.
-	if (csm_isWithinThreshold(csm.curRx.elapsedTime,
-								csm.deltaT)) {
-		// The next bit is the same as the previous bit,
-		// but we must wait for the next short pulse.
-		csm.rxState = csm_receiveState_dataNext;
-	}
-	else if (csm_isWithinThreshold(csm.curRx.elapsedTime / 2,
-								csm.deltaT)) {
-		// The next bit is different than the previous bit.
-		// Set the bit and advance the bit position counter.
-		if(((csm.rxByte >> (csm.rxBits - 1)) & 1) == 0) {
-			csm.rxByte |= (1 << csm.rxBits);
+		// Calculate some simple statistics about the edges
+		sum = 0;
+		max = 0;
+		min = UINT16_MAX;
+		int i;
+		for (i=0; i<RX_PREAMBLE_LEN; i++) {
+			uint16_t val = csm.rxPreambleBuffer[i];
+			sum += val;
+			if (val > max) max = val;
+			if (val < min) min = val;
 		}
 
-		csm.rxBits++;
-		csm_advanceReceiveDataState();
+		// Check that the previous four edges were about the same time between
+		// each other.
+		average = sum / RX_PREAMBLE_LEN;
+		if (max - min < average / 10) {
+
+			// Check that we just saw a double width signal (which at this point
+			// is the start bit)
+			if (csm_isWithinThreshold(rx.elapsedTime / 2, average)) {
+
+				// Found start bit!
+
+				// Move to the receiving data state
+				csm.rxState = CSM_RXSTATE_DATA;
+				csm.rxDeltaT  = average;
+
+				// TODO CHANGE THIS
+				TBCCR0 = average;
+				return;
+			}
+		}
 	}
-	else {
-		// An error has occured, flip back to waiting
-		// for a start bit.
-		csm.rxState = csm_receiveState_idle;
+
+	// If we get here, we have not found a start bit
+
+	// Save the timing between edges here
+	rxPreambleReceivedEdges++;
+	rxPreambleBuffer[rxPreambleIdx++] = rx.elapsedTime;
+	rxPreambleIdx %= 4;
+}
+
+// Called when an edge comes in after we have made it to the data portion
+// of the signal
+void csm_receiveData (csm_rx_input_t rx) {
+	// Possible ways to receive data:
+	// Two short pulses => Same bit as last bit
+	// One long pulse   => different bit
+	// Anything else    => nope nope nope.
+	if (csm_isWithinThreshold(rx.elapsedTime, csm.rxDeltaT)) {
+		// The next bit is the same as the previous bit,
+		// but we must wait for the next short pulse.
+		csm.rxState = CSM_RXSTATE_DATA_EXTRA;
+
+	} else if (csm_isWithinThreshold(rx.elapsedTime / 2, csm.rxDeltaT)) {
+		// The next bit is different than the previous bit.
+		// Set the bit and advance the bit position counter.
+		csm_receiveAddBit(CSM_RX_BIT_DIFFERENT);
+
+	} else {
+		// Either an error occurred or we just got to the end of the packet.
+		if (csm.rxByteIdx >= 1 && csm.rxBitIdx == 0) {
+			csm.rxCallback(csm.rxBufRaw, csm.rxByteIdx - 1);
+		}
+		csm_receiveClear();
+		csm.rxState = CSM_RXSTATE_IDLE;
 	}
 }
 
-void csm_receiveDataNext(void) {
+// Called when we have to capture a second edge because we have two identical
+// bits in a row
+void csm_receiveDataExtra (csm_rx_input_t rx) {
 	// We're waiting for the second short pulse. The only time
 	// we'll see two short pulses in a row is when the bit is
 	// equal to the last bit.
-	if (csm_isWithinThreshold(csm.curRx.elapsedTime,
-								csm.deltaT)) {
-		// If the previous bit was a one, make this bit
-		// a one also.
-		if (((csm.rxByte >> (csm.rxBits - 1)) & 1) == 1) {
-			csm.rxByte |= (1 << csm.rxBits);
-		}
-
-		csm.rxBits++;
-		csm_advanceReceiveDataState();
-	}
-	else {
-		// An error has occured, flip back to waiting
-		// for a start bit.
-		csm.rxState = csm_receiveState_idle;
-	}
-}
-
-/////////////////////////////////
-// Region: Transmit state machine
-/////////////////////////////////
-uint8_t csm_transmitIdle(void) {
-	if (csm.txBitPosition && csm.txIdleCycles < IDLE_CYCLES) {
-		csm.txIdleCycles++;
-	}
-	return csm.txBitPosition;
-}
-
-uint8_t csm_transmitPending(void) {
-	if (csm.txBitPosition == 0) {
-		csm.txState = CSM_TXSTATE_DATA;
-		return csm_transmitData();
+	if (csm_isWithinThreshold(rx.elapsedTime, csm.rxDeltaT)) {
+		// If the previous bit was a one, make this bit a one also.
+		csm_receiveAddBit(CSM_RX_BIT_SAME);
+		csm.rxState = CSM_RXSTATE_DATA;
 	} else {
-		return 1;
-	}
-}
-
-uint8_t csm_transmitData(void) {
-	uint8_t ret = ((csm.txByte >> csm.txBytePosition) & 0x1);
-
-
-	if (csm.txBitPosition == 1) {
-		csm.txBytePosition++;
-
-		if (csm.txBytePosition == 10) {
-			csm.txState = CSM_TXSTATE_IDLE;
-			csm.txBytePosition = 0;
-			csm.txIdleCycles = 0;
+		// Either an error occurred or we just got to the end of the packet.
+		if (csm.rxByteIdx >= 1 && csm.rxBitIdx == 0) {
+			csm.rxCallback(csm.rxBufRaw, csm.rxByteIdx - 1);
 		}
+		csm_receiveClear();
+		csm.rxState = CSM_RXSTATE_IDLE;
+	}
+}
+
+// Call to reset the receive state to what it should look like when waiting
+// for a packet.
+void csm_receiveClear () {
+	memclr(csm.rxPreambleBuffer, RX_PREAMBLE_LEN);
+	csm.rxPreambleReceivedEdges = 0;
+	csm.rxPreambleIdx           = 0;
+
+	memclr(csm.rxBufRaw, MAX_BUF_SIZE);
+	csm.rxBitIdx      = 0;
+	csm.rxByteIdx     = 0;
+	csm.rxPreviousBit = 0;
+}
+
+// Add a bit to the received array.
+//  bit: whether or not to add the same bit as last time
+void csm_receiveAddBit (csm_receiveBitType_e bit) {
+	uint8_t last_bit;
+
+	if (csm.rxPreviousBit == 0 && bit == CSM_RX_BIT_SAME ||
+		csm.rxPreviousBit == 1 && bit == CSM_RX_BIT_DIFFERENT) {
+		// Simple case of just needing to add a zero
+		// Just need to increment the counters
+		csm.rxPreviousBit = 0;
 	} else {
-		 ret = !ret;
+		// Need to add a 1
+		csm.rxBufRaw[csm.rxByte] |= (1 << csm.rxBitIdx);
+		csm.rxPreviousBit = 1;
 	}
 
-	return ret;
+	// Increment the bit position counters
+	csm.rxBitIdx++;
+	if (csm.rxBitIdx > 7) {
+		csm.rxBitIdx = 0;
+		csm.rxByteIdx++;
+	}
 }
+
 
 /////////////////////////////
 // Region: Public functions
 /////////////////////////////
 
-void csm_receiveTiming(struct csm_timer_struct * in) {
-	csm.curRx = (*in);
-	csm.rxDispatch[csm.rxState]();
-	csm.lastRx = (*in);
+// Function that is called when an interrupt is detected
+void csm_receiveTiming (csm_rx_input_t* in) {
+	switch (csm.rxState) {
+		case CSM_RXSTATE_IDLE: csm_receiveIdle(in); break;
+		case CSM_RXSTATE_IDLE: csm_receiveData(in); break;
+		case CSM_RXSTATE_IDLE: csm_receiveDataExtra(in); break;
+	}
 }
 
-void csm_registerReceiveBuffer(csm_byteReceiver* f) {
+// Call to register a function to get called when a packet is received
+void csm_registerReceiveCallback (csm_bufferReceived* f) {
 	csm.rxCallback = f;
 }
 
-void csm_registerTransmitBuffer (csm_bufferSent* f) {
+// Register a function to be called after a packet is transmitted
+void csm_registerTransmitCallback (csm_bufferSent* f) {
 	csm.txCallback = f;
 }
 
@@ -169,33 +199,44 @@ uint8_t csm_sendBuffer (uint8_t* buf, uint8_t len) {
 	csm.transmittingPacket = 1;
 
 	// Copy the buffer to be transmitted and initialize buffer settings
-	memcpy(csm.rawTxBuf, buf, len);
-	csm.txLen = len;
+	memcpy(csm.txBufRaw, buf, len);
+	csm.txLen     = len;
 	csm.txByteIdx = 0;
-	csm.txBitIdx = 0;
+	csm.txBitIdx  = 0;
 	csm.txBitHalf = 0;
 
 	// Setup the pin value to be the start bit
 	gpio_init(MIC_PORT, MIC_PIN, GPIO_OUT);
 	csm.txPinOutput = 1;
-	csm.txPinVal = csm_int2man(PREAMBLE_BIT);
+	csm.txPinVal    = csm_int2man(PREAMBLE_BIT);
 
 	// Mark the state as data to start things sending
-	csm.txState = CSM_TXSTATE_PREAMBLE;
+	csm.txState        = CSM_TXSTATE_PREAMBLE;
 	csm.preambleBitLen = 4;
 
 	return 0;
 }
 
+
+/////////////////////////////////
+// Region: Transmit state machine
+/////////////////////////////////
+
+
 // Called by the periodic timer to signal that half of a symbol period has
 // elapsed. This is used to output the manchester encoded signal.
 void csm_txTimerInterrupt (void) {
+
+	// The first operation is to set the correct value of the pin that was
+	// calculated before. This ensures little to no delay in the timing of
+	// the signal.
 	if (csm.txPinOutput) {
 		pal_setDigitalGpio(pal_gpio_mic, csm.txPinVal);
 	}
 
-	// In all cases if we need to send the other half of the Manchester bit
-	// just do it.
+	// Manchester encoding requires two bauds per bit. If we have already
+	// set the first one, then in all cases if we need to send the other half
+	// of the Manchester bit, which is just the opposite of the previous level.
 	if (csm.txBitHalf == 0) {
 		csm.txBitHalf = 1;
 		csm.txPinVal = (csm.txPinVal) ? 0 : 1;
@@ -224,7 +265,7 @@ void csm_txTimerInterrupt (void) {
 
 		case CSM_TXSTATE_START:
 			csm.txBitHalf = 0;
-			csm.txPinVal = csm_int2man(csm.rawTxBuf[0] & 0x1);
+			csm.txPinVal = csm_int2man(csm.txBufRaw[0] & 0x1);
 			csm.txState = CSM_TXSTATE_DATA;
 			break;
 
@@ -238,7 +279,7 @@ void csm_txTimerInterrupt (void) {
 			if (csm.txBitIdx < 8) {
 				// Send the correct data bit
 				csm.txPinVal = csm_int2man(
-					(csm.rawTxBuf[csm.txByteIdx] >> csm.txBitIdx) & 0x1);
+					(csm.txBufRaw[csm.txByteIdx] >> csm.txBitIdx) & 0x1);
 			} else {
 				// Either done or need to move onto the next byte
 				csm.txByteIdx++;
@@ -246,7 +287,7 @@ void csm_txTimerInterrupt (void) {
 				if (csm.txByteIdx < csm.txLen) {
 					// Starting a new byte, send the first bit
 					csm.txBitIdx = 0;
-					csm.txPinVal = csm_int2man(csm.rawTxBuf[csm.txByteIdx] & 0x1);
+					csm.txPinVal = csm_int2man(csm.txBufRaw[csm.txByteIdx] & 0x1);
 				} else {
 					// Finished sending the packet, move to the idle state
 					csm.txState = CSM_TXSTATE_POSTAMBLE;
@@ -285,9 +326,14 @@ void csm_txTimerInterrupt (void) {
 	}
 }
 
+
+// Init function for this module
 void csm_init(void) {
 	memset(&csm, 0, sizeof(struct csm_state_struct));
 	csm.txState = CSM_TXSTATE_IDLE;
+
+	csm.rxState = CSM_RXSTATE_IDLE;
+	csm_receiveClear();
 
 	// See config.h for declaration of these
 	// platform specific parameters.
@@ -310,27 +356,4 @@ inline uint8_t csm_int2man (uint8_t val) {
 	return val & 0x1;
 }
 
-uint8_t csm_calcByteParity(uint8_t byte) {
-	// calculate parity function
-	uint8_t parity = 0;
-	uint8_t i = 0;
-	while (i < 8) {
-		parity ^= ((byte >> i) & 1);
-		i++;
-	}
-	return parity;
-}
 
-void csm_advanceReceiveDataState(void) {
-	if (csm.rxBits == 10) {
-		// we have 1 start bit + 8 data bits + 1 parity bit
-
-		if (csm_calcByteParity(csm.rxByte >> 1) == (csm.rxByte >> 9)) {
-			csm.rxCallback((csm.rxByte >> 1) & 0xFF);
-		}
-
-		csm.rxState = csm_receiveState_idle;
-	} else {
-		csm.rxState = csm_receiveState_data;
-	}
-}

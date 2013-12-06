@@ -26,12 +26,12 @@
 // Public Memebers:
 ////////////////////////////////////////
 
-// Struct to pass capture data to the
-// receive timing function.
-struct csm_timer_struct {
-	uint16_t elapsedTime;  // The number of timer counts between this and the last value
-	uint8_t signal; // If the signal line is low or high
-};
+// Struct to pass capture data to the receive timing function.
+typedef struct csm_timer_struct {
+	uint16_t elapsedTime;  // The number of timer counts between this and the
+	                       // last value
+	uint8_t signal;        // If the signal line is low or high
+} csm_rx_input_t;
 
 // Definition of callback function to be called
 // when a byte is received.
@@ -76,27 +76,36 @@ void csm_txTimerInterrupt (void);
 typedef void    csm_rxDispatchFunc(void);
 typedef uint8_t csm_txDispatchFunc(void);
 
-#define CSM_TXSTATECOUNT 4
-enum csm_transmitStateEnum {
+typedef enum csm_transmitStateEnum {
 	CSM_TXSTATE_IDLE,
 	CSM_TXSTATE_PREAMBLE,
 	CSM_TXSTATE_START,
 	CSM_TXSTATE_DATA,
-	CSM_TXSTATE_POSTAMBLE
-};
+	CSM_TXSTATE_POSTAMBLE,
+} csm_txState_e;
 
-#define CSM_RXSTATECOUNT 3
-enum csm_receiveStateEnum {
-	csm_receiveState_idle,
-	csm_receiveState_data,
-	csm_receiveState_dataNext
-};
+typedef enum csm_receiveStateEnum {
+	CSM_RXSTATE_IDLE,
+	CSM_RXSTATE_DATA,
+	CSM_RXSTATE_DATA_EXTRA
+} csm_rxState_e;
+
+typedef enum csm_receiveBits {
+	CSM_RX_BIT_DIFFERENT,
+	CSM_RX_BIT_SAME
+} csm_receiveBitType_e;
 
 #define MAX_BUF_SIZE 128
+#define RX_PREAMBLE_LEN 4
 
 // Keep all the state associated with this module
 // in a struct.
 struct csm_state_struct {
+
+	/// State
+
+	csm_txState_e txState;
+	csm_rxState_e rxState;
 
 	// Set to 1 if we are currently transmitting a packet
 	uint8_t transmittingPacket;
@@ -104,17 +113,17 @@ struct csm_state_struct {
 	// Whether the mic pin is configured as an output or input
 	uint8_t txPinOutput;
 
+
+	/// TX
+
 	// Storage for the raw, fully-formed packet from the upper layer that is to
 	// be transmitted
-	uint8_t rawTxBuf[MAX_BUF_SIZE];
+	uint8_t txBufRaw[MAX_BUF_SIZE];
 	// Length of the raw out buffer
 	uint8_t txLen;
 	// Which byte from the raw buffer we are currently transmitting
 	uint8_t txByteIdx;
 	// Which bit of the byte we are transmitting
-	//   0 = start bit
-	//   1 = LSBit of the byte
-	//   9 = parity bit
 	uint8_t txBitIdx;
 	// Which half of the manchester bit we are sending
 	uint8_t txBitHalf;
@@ -133,11 +142,38 @@ struct csm_state_struct {
 	csm_bufferSent* txCallback;
 
 
+	/// RX
+
+	// Timing of two consecutive edges (single baud)
+	uint16_t rxDeltaT;
+
+	// Buffer to hold the last four elapsed time between edges. If these are all
+	// about the same, and then we get a double length elapsed time at a rising
+	// edge, then we have detected a start bit to a packet.
+	uint16_t rxPreambleBuffer[RX_PREAMBLE_LEN];
+	uint8_t  rxPreambleReceivedEdges;
+	uint8_t  rxPreambleIdx;
+
+	// Buffer to put the raw data read from the phone in
+	uint8_t  rxBufRaw[MAX_BUF_SIZE];
+	// Number of bits received for this byte
+	uint8_t  rxBitIdx;
+	// Total number of bytes received
+	uint8_t  rxByteIdx;
+	// The value of the last bit we added to the array
+	uint8_t  rxPreviousBit;
+
+	// RX Callback triggers when a packet has been received
+	csm_bufferReceived* rxCallback;
+
+
+
+
+
 
 
 	// Encoding state
 	csm_txDispatchFunc *        txDispatch[CSM_TXSTATECOUNT];
-	enum csm_transmitStateEnum  txState;
 	uint16_t                    txByte;
 	uint8_t                     txBytePosition;
 	uint8_t                     txBitPosition;
@@ -145,18 +181,11 @@ struct csm_state_struct {
 	// ^ Actually stores start bit + parity too
 
 	// Decoding state
-	struct csm_timer_struct     lastRx;
-	struct csm_timer_struct     curRx;
 	uint16_t                    threshold;
-	uint16_t                    deltaT;
 
 	csm_rxDispatchFunc *        rxDispatch[CSM_RXSTATECOUNT];
-	csm_byteReceiver *          rxCallback;
 
 
-	enum csm_receiveStateEnum   rxState;
-	uint16_t                    rxByte;
-	uint8_t                     rxBits;
 } csm;
 
 // PRIVATE METHODS:
