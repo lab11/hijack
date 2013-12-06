@@ -25,64 +25,40 @@
 /////////////////////////////
 
 void fe_init(void) {
-	memset((void*) &fe_state, 0, sizeof(struct fe_state_struct));
-
-	fe_state.rxState = fe_receiveState_start;
+	memset((void*) &fe, 0, sizeof(struct fe_state_struct));
 }
 
-void fe_handleByteReceived(uint8_t val) {
+void fe_handleBufferReceived (uint8_t* buf, uint8_t len) {
 
-	// If it's a start-byte abandon what we were
-	// doing previously and reset state back to start.
-	if (val == START_BYTE &&
-		fe_state.rxState != fe_receiveState_dataEscape) {
-		fe_state.rxState = fe_receiveState_size;
-		fe_state.incomingBufferPos = 0;
+	// Check that the checksum is correct
+	uint8_t sum = 0;
+	int i;
+
+	for (i=0; i<len-1; i++) {
+		sum += buf[i];
+	}
+
+	if (sum != buf[len-1]) {
+		// checksum failed
 		return;
 	}
 
-	switch (fe_state.rxState) {
-		// More than most likely it's data
-		// or an escape character:
-		case fe_receiveState_data:
-			if (val == ESCAPE_BYTE) {
-				fe_state.rxState = fe_receiveState_dataEscape;
-				fe_state.receiveSize--;
-				break;
-			}
-			// INTENTIONAL FALL THROUGH
-		case fe_receiveState_dataEscape:
-			fe_state.incomingBuffer[fe_state.incomingBufferPos++] = val;
-			if (fe_state.incomingBufferPos == fe_state.receiveSize) {
-				fe_checkPacket();
-				fe_state.rxState = fe_receiveState_start;
-			}
-			break;
 
-		// The byte after the start byte is the size:
-		case fe_receiveState_size:
-			if (val > FE_RECEIVEMAX) {
-				fe_state.rxState = fe_receiveState_start;
-				break;
-			}
-			fe_state.receiveSize = val;
-			fe_state.rxState = fe_receiveState_header;
-			break;
+	// Parse the buffer and create the packet
+	fe.rxPacket.length        = len - 2; // Subtract 2 for the header bit and the checksum
+	fe.rxPacket.power_down    = (buf[0] & PKT_POWERDOWN_MASK) >> PKT_POWERDOWN_OFFSET;
+	fe.rxPacket.ack_requested = (buf[0] & PKT_ACKREQ_MASK) >> PKT_ACKREQ_OFFSET;
+	fe.rxPacket.retries       = (buf[0] & PKT_RETRIES_MASK) >> PKT_RETRIES_OFFSET;
+	fe.rxPacket.type          = (buf[0] & PKT_TYPE_MASK);
+	memcpy(fe.rxPacket.data, buf+1, fe.rxPacket.length);
 
-		case fe_receiveState_header:
-			fe_state.header = val;
-			fe_state.rxState = fe_receiveState_data;
-			break;
-
-		default:
-			break;
-	}
+	fe.packetReceivedCb(&fe.rxPacket);
 }
 
 // Gets called when the lower layer has transmitted the buffer we passed to it
 void fe_handleBufferSent (void) {
-	fe_state.sendingPacket = 0;
-	fe_state.packetSentCb();
+	fe.sendingPacket = 0;
+	fe.packetSentCb();
 }
 
 // Send a packet. First it builds the outgoing packet in the outBuf and then
@@ -93,31 +69,31 @@ fe_error_e fe_sendPacket (packet_t* pkt) {
 	uint8_t sum;
 	uint8_t error;
 
-	if (fe_state.sendingPacket) {
+	if (fe.sendingPacket) {
 		return FE_BUSY;
 	}
 
-	fe_state.sendingPacket = 1;
+	fe.sendingPacket = 1;
 
 	// Fill the outgoing buffer from the given packet
-	fe_state.outBufIdx = 0;
-	fe_state.outBuf[fe_state.outBufIdx] = (pkt->power_down & 0x1) << 7 |
-	                                      (pkt->ack_requested & 0x1) << 6 |
-	                                      (pkt->retries & 0x3) << 4 |
-	                                      (pkt->type & 0xF);
-	sum = fe_state.outBuf[fe_state.outBufIdx++];
+	fe.outBufIdx = 0;
+	fe.outBuf[fe.outBufIdx] = (pkt->power_down << PKT_POWERDOWN_OFFSET) & PKT_POWERDOWN_MASK |
+	                          (pkt->ack_requested << PKT_ACKREQ_OFFSET) & PKT_ACKREQ_OFFSET |
+	                          (pkt->retries << PKT_RETRIES_OFFSET) & PKT_RETRIES_MASK |
+	                          (pkt->type & PKT_TYPE_MASK);
+	sum = fe.outBuf[fe.outBufIdx++];
 
 	// Copy the data portion of the packet to the buffer, inserting escapes
 	// where necessary.
 	for (i=0; i<pkt->length; i++) {
-		fe_state.outBuf[fe_state.outBufIdx++] = pkt->data[i];
+		fe.outBuf[fe.outBufIdx++] = pkt->data[i];
 		sum += pkt->data[i];
 	}
-	fe_state.outBuf[fe_state.outBufIdx] = sum; // checksum
-	fe_state.outBufLen = pkt->length + 2; // header, chksum
+	fe.outBuf[fe.outBufIdx] = sum; // checksum
+	fe.outBufLen = pkt->length + 2; // header, chksum
 
 	// Start sending the packet
-	error = fe_state.bufferSender(fe_state.outBuf, fe_state.outBufLen);
+	error = fe.bufferSender(fe.outBuf, fe.outBufLen);
 	if (error > 0) {
 		return FE_FAIL;
 	}
@@ -130,53 +106,14 @@ fe_error_e fe_sendPacket (packet_t* pkt) {
 //////////////////////////////////
 
 void fe_registerPacketReceivedCb (fe_packetReceived* cb) {
-	fe_state.packetReceivedCb = cb;
+	fe.packetReceivedCb = cb;
 }
 
-void fe_registerPacketSentCb (fe_callback* cb) {
-	fe_state.packetSentCb = cb;
+void fe_registerPacketSentCb (fe_packetSent* cb) {
+	fe.packetSentCb = cb;
 }
 
 void fe_registerBufferSender (fe_bufferSender* sender) {
-	fe_state.bufferSender = sender;
+	fe.bufferSender = sender;
 }
 
-////////////////////////////
-// Region: Helper functions
-////////////////////////////
-
-void fe_checkPacket() {
-	uint8_t sum = fe_state.header;
-	uint8_t i = 0;
-	uint8_t incomingPktPos = 0;
-
-	// Compute the simple byte-addition checksum.
-	for (i = 0; i < fe_state.incomingBufferPos - 1; i++) {
-		sum += fe_state.incomingBuffer[i];
-	}
-
-	// Fill incomingPktBuffer with the data.
-	if (sum == fe_state.incomingBuffer[fe_state.incomingBufferPos - 1]) {
-
-	//	if ((LED_OUT & LED_0) == 0){
-	//		LED_OUT ^= LED_0;
-	//	} else {
-	//		LED_OUT &= ~LED_0;
-	//	}
-
-		// Ignore the checksum on the end.
-		for (i = 0; i < fe_state.incomingBufferPos - 1; i++) {
-			fe_state.incomingPkt.data[incomingPktPos++] =
-				fe_state.incomingBuffer[i];
-		}
-
-		fe_state.incomingPkt.length = incomingPktPos;
-
-		// Process the header fields
-		if (fe_state.header & 0x40) fe_state.incomingPkt.ack_requested = 1;
-		fe_state.incomingPkt.retries = (fe_state.header & 0x30) >> 4;
-		fe_state.incomingPkt.type = fe_state.header & 0x0f;
-
-		fe_state.packetReceivedCb(&fe_state.incomingPkt);
-	}
-}

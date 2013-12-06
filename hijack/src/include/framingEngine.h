@@ -26,14 +26,12 @@
 #include "hardware.h"
 #include "packet.h"
 
-#define START_BYTE 0xCC
-#define ESCAPE_BYTE 0xDD
 
 ////////////////////////////////////////
 // Public Memebers:
 ////////////////////////////////////////
 
-typedef void fe_callback (void);
+typedef void fe_packetSent (void);
 typedef void fe_packetReceived (packet_t* pkt);
 typedef uint8_t fe_bufferSender (uint8_t*, uint8_t);
 
@@ -47,24 +45,24 @@ typedef enum fe_error {
 // the framing engine.
 void fe_init(void);
 
-// Called by the byte-receiving machinery to
-// pass a received byte into the framing engine.
-void fe_handleByteReceived(uint8_t byte);
+// Called after a packet buffer has been received from the phone. Converts
+// the raw buffer to a packet
+void fe_handleBufferReceived(uint8_t* buf, uint8_t len);
 
 // Called by the byte-sending machinery to
 // notify the framing engine a byte has been sent
 // allowing it to queue another byte.
 void fe_handleBufferSent (void);
 
-// Register a callback to be invoked when a full packet
-// has been received by the framing engine and verified
-// to have a valid checksum.
+
+// Register a callback to be invoked when a full packet has been received by the
+// framing engine and verified to have a valid checksum.
 void fe_registerPacketReceivedCb(fe_packetReceived * cb);
 
 // Register a callback to be invoked when a full packet
 // has been sent to allow for the application layer to
 // queue another packet for transmission.
-void fe_registerPacketSentCb(fe_callback* cb);
+void fe_registerPacketSentCb(fe_packetSent* cb);
 
 // Register a function that allows the framing engine
 // to send a byte to the lower layers of communication.
@@ -76,27 +74,12 @@ fe_error_e fe_sendPacket (packet_t* pkt);
 // Private Memebers:
 ////////////////////////////////////////
 
-#define FE_INBUFFERSIZE 26
-#define FE_OUTBUFFERSIZE 20
-#define FE_RECEIVEMAX 18
-
-typedef enum fe_receiveStateEnum {
-	fe_receiveState_start,
-	fe_receiveState_size,
-	fe_receiveState_header,
-	fe_receiveState_data,
-	fe_receiveState_dataEscape
-} fe_receiveState_e;
+#define FE_OUTBUFFERSIZE 128
 
 struct fe_state_struct {
 
 	// Whether or not there is a packet transmission in progress
 	uint8_t sendingPacket;
-
-	// Holds the received raw data and the outgoing
-	// full packet data.
-	uint8_t incomingBuffer[FE_INBUFFERSIZE];
-	uint8_t incomingBufferPos;
 
 	// Storage space for the rendered outgoing packet that can be put on the
 	// wire.
@@ -104,27 +87,15 @@ struct fe_state_struct {
 	uint8_t outBufIdx;
 	uint8_t outBufLen;
 
-	// Where we build the incoming and outgoing packets from.
-	// Incoming packet payload is written here
-	// and outgoing packet payload is written here.
-	packet_t outgoingPkt;
-
-	// Where the most recently received packet resides
-	packet_t incomingPkt;
+	// Where to put the packet from the incoming buffer
+	packet_t rxPacket;
 
 	// Callbacks for events related to packets
 	fe_packetReceived* packetReceivedCb;
-	fe_callback* packetSentCb;
+	fe_packetSent* packetSentCb;
+
+	// Function that transmits the created buffer
 	fe_bufferSender* bufferSender;
-
-	fe_receiveState_e rxState;
-
-	// Stores the received size of the incoming packet.
-	uint8_t receiveSize;
-	uint8_t header;
-} fe_state;
-
-void fe_checkPacket(void);
-void fe_buildTransmitBuffer(void);
+} fe;
 
 #endif

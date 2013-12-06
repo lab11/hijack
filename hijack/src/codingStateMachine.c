@@ -31,12 +31,12 @@ int txTempBit = 0;
 /////////////////////////////////
 
 // Called on each received edge that occurs between packets.
-void csm_receiveIdle (csm_rx_input_t rx) {
+void csm_receiveIdle (csm_rx_input_t* rx) {
 
 	// Start checking if we have found a start bit
-	if (rxPreambleReceivedEdges >= RX_PREAMBLE_LEN && // seen the minimum preamble
-	    rx.signal == 1 && // rising edge
-	   ) {
+	if (csm.rxPreambleReceivedEdges >= RX_PREAMBLE_LEN && // seen the preamble
+	    rx->signal == 1 // rising edge
+ 	   ) {
 	   	uint32_t sum, average;
 		uint16_t max, min;
 
@@ -59,7 +59,7 @@ void csm_receiveIdle (csm_rx_input_t rx) {
 
 			// Check that we just saw a double width signal (which at this point
 			// is the start bit)
-			if (csm_isWithinThreshold(rx.elapsedTime / 2, average)) {
+			if (csm_isWithinThreshold(rx->elapsedTime / 2, average)) {
 
 				// Found start bit!
 
@@ -77,24 +77,24 @@ void csm_receiveIdle (csm_rx_input_t rx) {
 	// If we get here, we have not found a start bit
 
 	// Save the timing between edges here
-	rxPreambleReceivedEdges++;
-	rxPreambleBuffer[rxPreambleIdx++] = rx.elapsedTime;
-	rxPreambleIdx %= 4;
+	csm.rxPreambleReceivedEdges++;
+	csm.rxPreambleBuffer[csm.rxPreambleIdx++] = rx->elapsedTime;
+	csm.rxPreambleIdx %= 4;
 }
 
 // Called when an edge comes in after we have made it to the data portion
 // of the signal
-void csm_receiveData (csm_rx_input_t rx) {
+void csm_receiveData (csm_rx_input_t* rx) {
 	// Possible ways to receive data:
 	// Two short pulses => Same bit as last bit
 	// One long pulse   => different bit
 	// Anything else    => nope nope nope.
-	if (csm_isWithinThreshold(rx.elapsedTime, csm.rxDeltaT)) {
+	if (csm_isWithinThreshold(rx->elapsedTime, csm.rxDeltaT)) {
 		// The next bit is the same as the previous bit,
 		// but we must wait for the next short pulse.
 		csm.rxState = CSM_RXSTATE_DATA_EXTRA;
 
-	} else if (csm_isWithinThreshold(rx.elapsedTime / 2, csm.rxDeltaT)) {
+	} else if (csm_isWithinThreshold(rx->elapsedTime / 2, csm.rxDeltaT)) {
 		// The next bit is different than the previous bit.
 		// Set the bit and advance the bit position counter.
 		csm_receiveAddBit(CSM_RX_BIT_DIFFERENT);
@@ -111,11 +111,11 @@ void csm_receiveData (csm_rx_input_t rx) {
 
 // Called when we have to capture a second edge because we have two identical
 // bits in a row
-void csm_receiveDataExtra (csm_rx_input_t rx) {
+void csm_receiveDataExtra (csm_rx_input_t* rx) {
 	// We're waiting for the second short pulse. The only time
 	// we'll see two short pulses in a row is when the bit is
 	// equal to the last bit.
-	if (csm_isWithinThreshold(rx.elapsedTime, csm.rxDeltaT)) {
+	if (csm_isWithinThreshold(rx->elapsedTime, csm.rxDeltaT)) {
 		// If the previous bit was a one, make this bit a one also.
 		csm_receiveAddBit(CSM_RX_BIT_SAME);
 		csm.rxState = CSM_RXSTATE_DATA;
@@ -132,11 +132,11 @@ void csm_receiveDataExtra (csm_rx_input_t rx) {
 // Call to reset the receive state to what it should look like when waiting
 // for a packet.
 void csm_receiveClear () {
-	memclr(csm.rxPreambleBuffer, RX_PREAMBLE_LEN);
+	memset(csm.rxPreambleBuffer, 0, RX_PREAMBLE_LEN);
 	csm.rxPreambleReceivedEdges = 0;
 	csm.rxPreambleIdx           = 0;
 
-	memclr(csm.rxBufRaw, MAX_BUF_SIZE);
+	memset(csm.rxBufRaw, 0, MAX_BUF_SIZE);
 	csm.rxBitIdx      = 0;
 	csm.rxByteIdx     = 0;
 	csm.rxPreviousBit = 0;
@@ -147,14 +147,14 @@ void csm_receiveClear () {
 void csm_receiveAddBit (csm_receiveBitType_e bit) {
 	uint8_t last_bit;
 
-	if (csm.rxPreviousBit == 0 && bit == CSM_RX_BIT_SAME ||
-		csm.rxPreviousBit == 1 && bit == CSM_RX_BIT_DIFFERENT) {
+	if (((csm.rxPreviousBit == 0) && (bit == CSM_RX_BIT_SAME)) ||
+		((csm.rxPreviousBit == 1) && (bit == CSM_RX_BIT_DIFFERENT))) {
 		// Simple case of just needing to add a zero
 		// Just need to increment the counters
 		csm.rxPreviousBit = 0;
 	} else {
 		// Need to add a 1
-		csm.rxBufRaw[csm.rxByte] |= (1 << csm.rxBitIdx);
+		csm.rxBufRaw[csm.rxByteIdx] |= (1 << csm.rxBitIdx);
 		csm.rxPreviousBit = 1;
 	}
 
@@ -172,11 +172,11 @@ void csm_receiveAddBit (csm_receiveBitType_e bit) {
 /////////////////////////////
 
 // Function that is called when an interrupt is detected
-void csm_receiveTiming (csm_rx_input_t* in) {
+void csm_rxEdgeInterrupt (csm_rx_input_t* in) {
 	switch (csm.rxState) {
-		case CSM_RXSTATE_IDLE: csm_receiveIdle(in); break;
-		case CSM_RXSTATE_IDLE: csm_receiveData(in); break;
-		case CSM_RXSTATE_IDLE: csm_receiveDataExtra(in); break;
+		case CSM_RXSTATE_IDLE:       csm_receiveIdle(in); break;
+		case CSM_RXSTATE_DATA:       csm_receiveData(in); break;
+		case CSM_RXSTATE_DATA_EXTRA: csm_receiveDataExtra(in); break;
 	}
 }
 
@@ -337,8 +337,8 @@ void csm_init(void) {
 
 	// See config.h for declaration of these
 	// platform specific parameters.
-	csm.threshold = THRESHOLD;
-	csm.deltaT = DELTAT;
+	csm.rxThreshold = THRESHOLD;
+	csm.rxDeltaT = DELTAT;
 }
 
 ////////////////////////////
@@ -346,8 +346,8 @@ void csm_init(void) {
 ////////////////////////////
 
 uint8_t csm_isWithinThreshold(uint16_t value, uint16_t desired) {
-	return value < desired + csm.threshold &&
-		value > desired - csm.threshold ? 1 : 0;
+	return value < desired + csm.rxThreshold &&
+		value > desired - csm.rxThreshold ? 1 : 0;
 }
 
 // Converts bit 0 of val to what the first half of the manchester bit should be

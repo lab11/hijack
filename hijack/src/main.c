@@ -79,7 +79,7 @@ void captureTimerFn(uint16_t elapsedTime, uint8_t isHigh) {
 	struct csm_timer_struct timingData;
 	timingData.elapsedTime = elapsedTime;
 	timingData.signal = !isHigh;
-	csm_receiveTiming(&timingData);
+	csm_rxEdgeInterrupt(&timingData);
 }
 
 void packetReceivedCallback(packet_t* pkt) {
@@ -144,8 +144,8 @@ void initializeSystem(void) {
 	// Initialize the transition-edge-length
 	// manchester decoder.
 	csm_init();
-	csm_registerReceiveBuffer(fe_handleByteReceived);
-	csm_registerTransmitBuffer(fe_handleBufferSent);
+	csm_registerReceiveCallback(fe_handleBufferReceived);
+	csm_registerTransmitCallback(fe_handleBufferSent);
 
 	// Initialize the framing engine to process
 	// the raw byte stream.

@@ -23,51 +23,48 @@
 #include <inttypes.h>
 
 ////////////////////////////////////////
-// Public Memebers:
+// Public Members:
 ////////////////////////////////////////
 
 // Struct to pass capture data to the receive timing function.
 typedef struct csm_timer_struct {
-	uint16_t elapsedTime;  // The number of timer counts between this and the
-	                       // last value
-	uint8_t signal;        // If the signal line is low or high
+	uint16_t elapsedTime;  // Timer counts between this and the last value
+	uint8_t  signal;       // If the signal line is low or high
 } csm_rx_input_t;
 
-// Definition of callback function to be called
-// when a byte is received.
-typedef void csm_byteReceiver (uint8_t);
+// Definition of callback function to be called when a packet has been received.
+typedef void csm_bufferReceived (uint8_t*, uint8_t);
 
-// Definition of callback function to be called when
-// a buffer has been sent.
+// Definition of callback function to be called when a buffer has been sent.
 typedef void csm_bufferSent (void);
 
-// Receives a pair of timing data and current line
-// signal data from the comparator.
-void csm_receiveTiming(struct csm_timer_struct * in);
-
-// Called by higher software, will send the passed in
-// byte by setting the state to transmit. Returns 1 if
-// already transmitting.
+// Called by higher software, will send the passed in packet to the phone.
+// Returns 1 if already transmitting.
 uint8_t csm_sendBuffer (uint8_t* buf, uint8_t len);
 
-// Registers a callback function to be executed when a
-// full byte has been received
-void csm_registerReceiveBuffer (csm_byteReceiver* func);
+// Registers a callback function to be executed when a packet buffer has been
+// received.
+void csm_registerReceiveCallback (csm_bufferReceived* func);
 
-// Registers a callback function to be executed when a
-// byte has been transmitted.
-void csm_registerTransmitBuffer (csm_bufferSent* func);
+// Registers a callback function to be executed when a packet buffer has been
+// transmitted.
+void csm_registerTransmitCallback (csm_bufferSent* func);
 
 // Initializes the coder's state.
 void csm_init(void);
 
-inline uint8_t csm_int2man (uint8_t val);
 
+////////////////////////////////////////
+// Interrupts:
+////////////////////////////////////////
+
+// Receives a pair of timing data and current line signal data from the
+// comparator.
+void csm_rxEdgeInterrupt (csm_rx_input_t* in);
+
+// Receives an interrupt from the tx timer
 void csm_txTimerInterrupt (void);
 
-#define START_BIT 0
-#define IDLE_BIT 0
-#define PREAMBLE_BIT 1
 
 ////////////////////////////////////////
 // Private Memebers:
@@ -95,8 +92,12 @@ typedef enum csm_receiveBits {
 	CSM_RX_BIT_SAME
 } csm_receiveBitType_e;
 
-#define MAX_BUF_SIZE 128
+#define MAX_BUF_SIZE    128
 #define RX_PREAMBLE_LEN 4
+
+#define START_BIT    0
+#define IDLE_BIT     0
+#define PREAMBLE_BIT 1
 
 // Keep all the state associated with this module
 // in a struct.
@@ -146,6 +147,7 @@ struct csm_state_struct {
 
 	// Timing of two consecutive edges (single baud)
 	uint16_t rxDeltaT;
+	uint16_t rxThreshold;
 
 	// Buffer to hold the last four elapsed time between edges. If these are all
 	// about the same, and then we get a double length elapsed time at a rising
@@ -166,43 +168,20 @@ struct csm_state_struct {
 	// RX Callback triggers when a packet has been received
 	csm_bufferReceived* rxCallback;
 
-
-
-
-
-
-
-	// Encoding state
-	csm_txDispatchFunc *        txDispatch[CSM_TXSTATECOUNT];
-	uint16_t                    txByte;
-	uint8_t                     txBytePosition;
-	uint8_t                     txBitPosition;
-	uint8_t                     txIdleCycles;
-	// ^ Actually stores start bit + parity too
-
-	// Decoding state
-	uint16_t                    threshold;
-
-	csm_rxDispatchFunc *        rxDispatch[CSM_RXSTATECOUNT];
-
-
 } csm;
 
 // PRIVATE METHODS:
 
 // Receive state machine dispatchers
-void csm_receiveIdle(void) ;
-void csm_receiveData(void);
-void csm_receiveDataNext(void);
+void csm_receiveIdle(csm_rx_input_t*);
+void csm_receiveData(csm_rx_input_t*);
+void csm_receiveDataNext(csm_rx_input_t*);
 
-// Transmit state machine dispatchers
-uint8_t csm_transmitIdle(void);
-uint8_t csm_transmitPending(void);
-uint8_t csm_transmitData(void);
+void csm_receiveClear ();
+void csm_receiveAddBit (csm_receiveBitType_e bit);
 
 // Helper functions
-void csm_advanceReceiveDataState(void);
 uint8_t csm_isWithinThreshold(uint16_t value, uint16_t desired);
-uint8_t csm_calcByteParity(uint8_t byte) ;
+inline uint8_t csm_int2man (uint8_t val);
 
 #endif
