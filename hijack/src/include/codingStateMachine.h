@@ -60,7 +60,7 @@ void csm_init(void);
 
 // Receives a pair of timing data and current line signal data from the
 // comparator.
-void csm_rxEdgeInterrupt (csm_rx_input_t* in);
+void csm_rxEdgeInterrupt (uint16_t elapsedTime, uint8_t isHigh);
 
 // Receives an interrupt from the tx timer
 void csm_txTimerInterrupt (void);
@@ -173,9 +173,9 @@ struct csm_state_struct {
 // PRIVATE METHODS:
 
 // Receive state machine dispatchers
-void csm_receiveIdle(csm_rx_input_t*);
-void csm_receiveData(csm_rx_input_t*);
-void csm_receiveDataNext(csm_rx_input_t*);
+void csm_receiveIdle(uint16_t elapsedTime, uint8_t isHigh);
+void csm_receiveData(uint16_t elapsedTime, uint8_t isHigh);
+void csm_receiveDataNext(uint16_t elapsedTime, uint8_t isHigh);
 
 void csm_receiveClear ();
 void csm_receiveAddBit (csm_receiveBitType_e bit);

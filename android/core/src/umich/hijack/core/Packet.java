@@ -18,8 +18,12 @@ public class Packet {
 	public int typeId;           // The ID of the functional use of the packet
 	public int[] data;           // The packet payload
 
-	private final int[] inBuf;   // Storage for a packet being received
-	private int inBitOffset;     // Which bit is currently being received
+	// Storage for a packet in raw buffer form. This is used when receiving
+	// a packet (each bit is stored) and when transmitting a packet (the buffer
+	// is filled from the fields in the packet).
+	private final int[] _buf;
+	// Which bit is currently being accessed in the raw buffer
+	private int _bufIdx;
 
 
 	private final static int MAX_PACKET_LEN = 256;
@@ -35,7 +39,7 @@ public class Packet {
 
 	public Packet () {
 		data = new int[MAX_PACKET_LEN];
-		inBuf = new int[MAX_PACKET_LEN+2];
+		_buf = new int[MAX_PACKET_LEN+2];
 		reset();
 	}
 
@@ -45,82 +49,137 @@ public class Packet {
 	///////////
 
 	public void reset () {
-		Arrays.fill(inBuf, 0);
-		inBitOffset = 0;
+		Arrays.fill(_buf, 0);
+		_bufIdx = 0;
 	}
 
+	// Add a bit to the internal receive buffer.
 	public void addBit (int val) {
 		if (val == 0) {
 			// Just need to increment the offset for a 0 bit
-			inBitOffset++;
+			_bufIdx++;
 			return;
 		}
 
 		// Add a 1 to the correct position
-		int byteIdx = inBitOffset / 8;
-		int bitIdx = inBitOffset - (byteIdx*8);
+		int byteIdx = _bufIdx / 8;
+		int bitIdx = _bufIdx - (byteIdx*8);
 
 		if (byteIdx > MAX_PACKET_LEN) {
 			// TODO: handle long packets better than this
 			return;
 		}
 
-		inBuf[byteIdx] |= (1 << bitIdx);
-		inBitOffset++;
+		_buf[byteIdx] |= (1 << bitIdx);
+		_bufIdx++;
 	}
 
-	public void processReceivedPacket () {
-		int numBytes = inBitOffset / 8; // how many bytes we received in the last packet
+	// Parses _buf to fill in the packet fields.
+	// Returns true if the packet is valid, false if not.
+	public boolean processReceivedPacket () {
+		int numBytes = _bufIdx / 8; // how many bytes we received in the last packet
 
 		if (numBytes < 2) {
 			// This is an invalid packet.
 			// Need to get at least the header and checksum bytes
-			return;
+			return false;
 		} else if (numBytes > MAX_PACKET_LEN) {
 			// Too long
-			return;
+			return false;
 		}
 
 		// Disect header
-		powerDown    = ((inBuf[0] & PKT_POWERDOWN_MASK) >> PKT_POWERDOWN_OFFSET) == 1;
-		ackRequested = ((inBuf[0] & PKT_ACKREQ_MASK) >> PKT_ACKREQ_OFFSET) == 1;
-		sentCount    = ((inBuf[0] & PKT_RETRIES_MASK) >> PKT_RETRIES_OFFSET) + 1;
-		typeId       = (inBuf[0] & PKT_TYPE_MASK);
+		powerDown    = ((_buf[0] & PKT_POWERDOWN_MASK) >> PKT_POWERDOWN_OFFSET) == 1;
+		ackRequested = ((_buf[0] & PKT_ACKREQ_MASK) >> PKT_ACKREQ_OFFSET) == 1;
+		sentCount    = ((_buf[0] & PKT_RETRIES_MASK) >> PKT_RETRIES_OFFSET) + 1;
+		typeId       = (_buf[0] & PKT_TYPE_MASK);
 
 		// Set length
 		length = numBytes - 2;
 
-		// Calculate checksum and copy data
-		int sum = 0;
-		for (int i=0; i<length+1; i++) {
-			sum += inBuf[i];
-			if (i > 0) {
-				data[i-1] = inBuf[i];
-			}
+		// Copy data
+		for (int i=1; i<length+1; i++) {
+			data[i-1] = _buf[i];
 		}
 
 		// Check checksum
-		if ((sum & 0xFF) == inBuf[numBytes-1]) {
-			System.out.println("pkt checksum passed");
+		if (_calculateChecksum() == _buf[numBytes-1]) {
 
-			// Print the received packet
-			System.out.println("PACKET");
-			System.out.println("   power down: " + powerDown);
-			System.out.println("   ack req:    " + ackRequested);
-			System.out.println("   sent count: " + sentCount);
-			System.out.println("   type id:    " + typeId);
-			System.out.print  ("   data:       ");
-			for (int i=0; i<length; i++) {
-				System.out.print(Integer.toHexString(data[i]) + " ");
-			}
-			System.out.println();
+System.out.println("pkt checksum passed");
+
+// Print the received packet
+System.out.println("PACKET");
+System.out.println("   power down: " + powerDown);
+System.out.println("   ack req:    " + ackRequested);
+System.out.println("   sent count: " + sentCount);
+System.out.println("   type id:    " + typeId);
+System.out.print  ("   data:       ");
+for (int i=0; i<length; i++) {
+	System.out.print(Integer.toHexString(data[i]) + " ");
+}
+System.out.println();
+
+			return true;
 		} else {
-			System.out.println("pkt FAILED checksum");
-			for (int i=0; i<numBytes; i++) {
-				System.out.print("0x" + Integer.toHexString(inBuf[i]) + " ");
-			}
-			System.out.println();
+
+System.out.println("pkt FAILED checksum");
+for (int i=0; i<numBytes; i++) {
+	System.out.print("0x" + Integer.toHexString(_buf[i]) + " ");
+}
+System.out.println();
+
+			return false;
 		}
+	}
+
+	// Takes the packet fields and creates a packet buffer in _buf that
+	// can be transmitted to the peripheral.
+	public void compressToBuffer () {
+
+		powerDown    = ((_buf[0] & PKT_POWERDOWN_MASK) >> PKT_POWERDOWN_OFFSET) == 1;
+		ackRequested = ((_buf[0] & PKT_ACKREQ_MASK) >> PKT_ACKREQ_OFFSET) == 1;
+		sentCount    = ((_buf[0] & PKT_RETRIES_MASK) >> PKT_RETRIES_OFFSET) + 1;
+		typeId       = (_buf[0] & PKT_TYPE_MASK);
+
+		_buf[0] = 0;
+		_buf[0] |= (((powerDown)?1:0 << PKT_POWERDOWN_OFFSET) & PKT_POWERDOWN_MASK);
+		_buf[0] |= (((ackRequested)?1:0 << PKT_ACKREQ_OFFSET) & PKT_ACKREQ_MASK);
+		_buf[0] |= ((sentCount << PKT_RETRIES_OFFSET) & PKT_RETRIES_MASK);
+		_buf[0] |= (typeId & PKT_TYPE_MASK);
+
+		for (int i=0; i<length; i++) {
+			_buf[i+1] = data[i];
+		}
+
+		_buf[length+1] = _calculateChecksum();
+
+		_bufIdx = 0;
+	}
+
+	// Returns the next bit in the packet buffer. Throws
+	// IndexOutOfBoundsException when there are no more bits in the array.
+	public int getBit () throws IndexOutOfBoundsException {
+
+		// Check if we are past the end of the buffer
+		if (_bufIdx >= ((length+2)*8)) {
+			throw new IndexOutOfBoundsException();
+		}
+
+		int byteIdx = _bufIdx / 8;
+		int bitIdx = _bufIdx - (byteIdx*8);
+
+		_bufIdx++;
+
+		return (_buf[byteIdx] >> bitIdx) & 0x1;
+	}
+
+	private int _calculateChecksum () {
+		// Calculate checksum and copy data
+		int sum = 0;
+		for (int i=0; i<length+1; i++) {
+			sum += _buf[i];
+		}
+		return sum & 0xFF;
 	}
 
 

@@ -24,7 +24,7 @@
 // Region: Public functions
 /////////////////////////////
 
-void fe_init(void) {
+void fe_init (void) {
 	memset((void*) &fe, 0, sizeof(struct fe_state_struct));
 }
 
@@ -77,9 +77,9 @@ fe_error_e fe_sendPacket (packet_t* pkt) {
 
 	// Fill the outgoing buffer from the given packet
 	fe.outBufIdx = 0;
-	fe.outBuf[fe.outBufIdx] = (pkt->power_down << PKT_POWERDOWN_OFFSET) & PKT_POWERDOWN_MASK |
-	                          (pkt->ack_requested << PKT_ACKREQ_OFFSET) & PKT_ACKREQ_OFFSET |
-	                          (pkt->retries << PKT_RETRIES_OFFSET) & PKT_RETRIES_MASK |
+	fe.outBuf[fe.outBufIdx] = ((pkt->power_down << PKT_POWERDOWN_OFFSET) & PKT_POWERDOWN_MASK) |
+	                          ((pkt->ack_requested << PKT_ACKREQ_OFFSET) & PKT_ACKREQ_OFFSET) |
+	                          ((pkt->retries << PKT_RETRIES_OFFSET) & PKT_RETRIES_MASK) |
 	                          (pkt->type & PKT_TYPE_MASK);
 	sum = fe.outBuf[fe.outBufIdx++];
 

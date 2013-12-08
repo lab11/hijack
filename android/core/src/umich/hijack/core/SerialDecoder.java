@@ -20,22 +20,18 @@ package umich.hijack.core;
 import java.util.ArrayList;
 import java.util.List;
 
-public class SerialDecoder {
+public class SerialDecoder implements PktTransmitter {
 	private final AudioReceiver _audioReceiver;
 
-	private enum TransmitState { IDLE, PENDING, DATA };
-	private enum receiveState { IDLE, DATA, DATANEXT };
+	private enum TransmitState { IDLE, PREAMBLE, DATA, POSTAMBLE };
+	private enum receiveState { IDLE, DATA };
 
 	// Receiver State
-	private final int _lastEdgeLength = 0;
-
-	private final int _currentEdgeLength = 0;
-	private final boolean _currentEdgeHigh = false;
 
 	//TODO: REFACTOR THIS OUT
-	private int _ioBaseFrequency = 613;
+	//private int _ioBaseFrequency = 613;
 
-	private int _threshold = 7;
+	//private int _threshold = 7;
 
 	// FOR THE MSP430FR5969:
 	//private int _threshold = 7;
@@ -48,83 +44,123 @@ public class SerialDecoder {
 
 	// Keep track of the times between edges in the preamble of the message.
 	// This lets us determine the baud rate on the fly.
-	private final LimitedArray timesBetweenEdges = new LimitedArray(4);
+	private final LimitedArray _timesBetweenEdges = new LimitedArray(4);
 	// The average of timesBetweenEdges
-	private int avgEdgePeriod;
+	private double _avgEdgePeriod;
 	// Whether the last edge let us set a bit or not
-	private edgeResult lastEdgeResult = edgeResult.BIT;
+	private edgeResult _lastEdgeResult = edgeResult.BIT;
 
-	private final int _deltaT = 0;
+	private receiveState _rxState = receiveState.IDLE;
 
-	private receiveState rxState = receiveState.IDLE;
-
-	private final Packet inPacket = new Packet();
-
-	private final int _rxByte = 0;
-	private final int _rxBits = 0;
+	// The packet currently being received. Only one packet can be received
+	// at a time, so we do not keep an array.
+	private Packet _inPacket;
 
 	// Transmit State
+
+	private final static int START_BIT = 0;
+	private final static int PREAMBLE_BIT = 1;
+
+	// Array of packets to be transmitted. Many packets can be queued up.
+	private final List<Packet> _outgoing = new ArrayList<Packet>();
+
+	// The packet currently being transmitted.
+	private Packet _outPacket;
+
+	// Number of bits to send in the preamble
+	private int _txPreambleBitLen = 4;
+	private int _txPostambleBitLen = 4;
+
+	// Whether to send the first or the second half of the manchester bit
+	private int _txBitHalf;
+
+	private boolean _txLastManBit;
+
 	private TransmitState _txState = TransmitState.IDLE;
-	private int _txByte = 0;
-	private int _txBytePosition = 0;
-	private int _txBitPosition;
 
-	private final int _idleCycles = 20;
-	private int _idleCycleCount = 0;
 
-	// Byte Buffers
-	private final List<Integer> _incoming = new ArrayList<Integer>();
-	private final List<Integer> _outgoing = new ArrayList<Integer>();
+	// Listeners for packet receive and sent events
+	private PktRecvCb _PacketReceivedCallback = null;
+	private PktSentCb _PacketSentCallback = null;
 
-	// Listeners for byte sent + byte received events
-	private OnBytesAvailableListener _bytesAvailableListener = null;
-	private OnByteSentListener _byteSentListener = null;
 
 
 	//////////////////////////////
 	// Transmit State Machine
 	/////////////////////////////
-	private boolean transmitIdle() {
-		return _txBitPosition == 1;
+
+	// Transmit just zeroes when in the idle state.
+	private boolean transmitIdle () {
+		return false;
 	}
 
-	private boolean transmitPending() {
-		if (_txBitPosition == 0) {
-			_txState = TransmitState.DATA;
-			return transmitData();
+	private boolean transmitPreamble () {
+System.out.println("transmitting a preamble");
+		if (_txBitHalf == 1) {
+			if (_txPreambleBitLen == 0) {
+				_txState = TransmitState.DATA;
+			}
+			return !_txLastManBit;
+		}
+
+		_txPreambleBitLen--;
+
+		if (_txPreambleBitLen == 0) {
+			return _int2man(START_BIT);
 		} else {
-			return true;
+			// Send preamble bits
+			return _int2man(PREAMBLE_BIT);
 		}
 	}
 
-	private boolean transmitData() {
-		boolean ret = ((_txByte >> _txBytePosition) & 0x1) == 1;
+	private boolean transmitData () {
+		if (_txBitHalf == 1) {
+			return !_txLastManBit;
+		}
 
-		if (_txBitPosition == 1) {
-			_txBytePosition++;
+		try {
+			boolean manbit = _int2man(_outPacket.getBit());
+System.out.println("Transmitting packet data " + manbit);
+			return manbit;
+		} catch (IndexOutOfBoundsException excp) {
+			_txPostambleBitLen = 4;
+			_txState = TransmitState.POSTAMBLE;
+			return false;
+		}
+	}
 
-			if (_txBytePosition == 10) {
-
-				synchronized(this) {
-					_idleCycleCount = 0;
-					_txState = TransmitState.IDLE;
-					_txBytePosition = 0;
-					notifyByteSent();
-				}
+	private boolean transmitPostamble () {
+		System.out.println("Transmitting postamble");
+		if (_txBitHalf == 1) {
+			if (_txPostambleBitLen > 0) {
+				// If we are in the midst of sending postamble zeros, just
+				// send zeroes.
+				return false;
+			} else if (_txPostambleBitLen == 0) {
+				// The last bit is an actual manchester bit, so we should
+				// treat it as such.
+				_txState = TransmitState.IDLE;
+				_notifySentPacket();
+				return !_txLastManBit;
 			}
 		}
-		else {
-			ret = !ret;
-		}
 
-		return ret;
+		_txPostambleBitLen--;
+
+		if (_txPostambleBitLen == 0) {
+			// Send a 1 bit so the receiver knows the packet is over.
+			return true;
+		} else {
+			// Otherwise just send all zeroes
+			return false;
+		}
 	}
 
 	/////////////////////////////
 	// Receive State Machine
 	/////////////////////////////
 	private void receiveIdle (int timeSinceLastEdge, EdgeType edge) {
-		avgEdgePeriod = timesBetweenEdges.average();
+		_avgEdgePeriod = _timesBetweenEdges.average();
 		//System.out.println("AVERAGE TIME: " + avgEdgePeriod);
 
 		// Check if we:
@@ -135,27 +171,31 @@ public class SerialDecoder {
 		//  - the previous edges were all roughly the same time from each other
 		//    (as they would be in the preamble)
 		if (edge == EdgeType.RISING &&
-			isClose(avgEdgePeriod*2, timeSinceLastEdge) &&
-			timesBetweenEdges.length() == 4 &&
-			timesBetweenEdges.variance() < 4) {
+			isClose(_avgEdgePeriod*2, timeSinceLastEdge) &&
+			_timesBetweenEdges.length() == 4) {
+
+
+			if (_timesBetweenEdges.variance() < 5.0) {
 			 // This is a start bit!
-			rxState = receiveState.DATA;
-			System.out.println("got start bit " + timesBetweenEdges.variance() + " " + avgEdgePeriod + " " + timeSinceLastEdge);
-			inPacket.reset();
+			_rxState = receiveState.DATA;
+			System.out.println("got start bit " + _timesBetweenEdges.variance() + " " + _avgEdgePeriod + " " + timeSinceLastEdge);
+			// Generate a new packet object to receive this packet into
+			_inPacket = new Packet();
 
-		} else {
+			return;
 
-			if (timeSinceLastEdge > 25 && timeSinceLastEdge < 35 &&
-				edge == EdgeType.RISING) {
-				// Maybe this should have been a start bit?
-				System.out.println("possible start bit: " + timesBetweenEdges.variance() + " " + avgEdgePeriod + " " + timeSinceLastEdge);
+			} else {
+				// nearly
+				System.out.println("near start bit: " + _timesBetweenEdges.variance() + " " + _avgEdgePeriod);
 			}
 
-			// Still waiting for the start bit, just record this edge so we
-			// can continue to track the average time between edges (aka the
-			// baud rate).
-			timesBetweenEdges.insert(timeSinceLastEdge);
 		}
+
+		// Still waiting for the start bit, just record this edge so we
+		// can continue to track the average time between edges (aka the
+		// baud rate).
+		_timesBetweenEdges.insert(timeSinceLastEdge);
+
 	}
 
 	// The primary function of this function is to determine if this edge
@@ -171,20 +211,47 @@ public class SerialDecoder {
 	//   | 1 period             | falling   | -                    || 1      |
 	private void receiveData (int timeSinceLastEdge, EdgeType edge) {
 		edgeSpace thisEdgeSpacing; // Number of bauds from the previous edge
-
+/*
 		// Determine if the edge we got is a single or double baud
-		if (isClose(avgEdgePeriod, timeSinceLastEdge)) {
+		if (isClose(_avgEdgePeriod, timeSinceLastEdge)) {
 			thisEdgeSpacing = edgeSpace.SINGLE;
-		} else if (isClose(avgEdgePeriod*2, timeSinceLastEdge)) {
+		} else if (isClose(_avgEdgePeriod*2, timeSinceLastEdge)) {
 			thisEdgeSpacing = edgeSpace.DOUBLE;
-		} else if (timeSinceLastEdge > avgEdgePeriod*3) {
+		} else if (timeSinceLastEdge > _avgEdgePeriod*3) {
 			// End of the packet
-			rxState = receiveState.IDLE;
+			_rxState = receiveState.IDLE;
 			System.out.println("EOP");
-			inPacket.processReceivedPacket();
+			boolean valid = _inPacket.processReceivedPacket();
+			if (valid) {
+				_notifyReceivedPacket(_inPacket);
+			}
 			return;
 		} else {
 			// This is a spurious edge
+			return;
+		}
+*/
+
+		// Determine if the edge we got is a single or double baud
+		if (timeSinceLastEdge < ((_avgEdgePeriod*3)/2)) {
+			thisEdgeSpacing = edgeSpace.SINGLE;
+		} else if ((timeSinceLastEdge > ((_avgEdgePeriod*3)/2)) &&
+				   (timeSinceLastEdge < ((_avgEdgePeriod*5)/2))
+				) {
+			thisEdgeSpacing = edgeSpace.DOUBLE;
+		} else if (timeSinceLastEdge > _avgEdgePeriod*3) {
+			// End of the packet
+			_rxState = receiveState.IDLE;
+			System.out.println("EOP");
+			boolean valid = _inPacket.processReceivedPacket();
+			if (valid) {
+				_notifyReceivedPacket(_inPacket);
+			}
+			return;
+		} else {
+			// This is a spurious edge
+			_rxState = receiveState.IDLE;
+			System.out.println("EOP - BOOO");
 			return;
 		}
 
@@ -192,28 +259,28 @@ public class SerialDecoder {
 			if (edge == EdgeType.FALLING) {
 				// add a 1 to the packet
 				System.out.println("1");
-				inPacket.addBit(1);
+				_inPacket.addBit(1);
 			} else { // rising edge
 				// add a 0 to the packet
 				System.out.println("0");
-				inPacket.addBit(0);
+				_inPacket.addBit(0);
 			}
-			lastEdgeResult = edgeResult.BIT;
+			_lastEdgeResult = edgeResult.BIT;
 		} else if (thisEdgeSpacing == edgeSpace.SINGLE) {
-			if (lastEdgeResult == edgeResult.BIT) {
+			if (_lastEdgeResult == edgeResult.BIT) {
 				// This edge is useless
-				lastEdgeResult = edgeResult.NULL;
-			} else if (lastEdgeResult == edgeResult.NULL) {
+				_lastEdgeResult = edgeResult.NULL;
+			} else if (_lastEdgeResult == edgeResult.NULL) {
 				if (edge == EdgeType.RISING) {
 					// This edge is a 0
 					System.out.println("0");
-					inPacket.addBit(0);
+					_inPacket.addBit(0);
 				} else { // falling edge
 					// This edge is a 1
 					System.out.println("1");
-					inPacket.addBit(1);
+					_inPacket.addBit(1);
 				}
-				lastEdgeResult = edgeResult.BIT;
+				_lastEdgeResult = edgeResult.BIT;
 			}
 		}
 	}
@@ -227,7 +294,7 @@ public class SerialDecoder {
 	public SerialDecoder() {
 		_audioReceiver = new AudioReceiver();
 		_audioReceiver.registerIncomingSink(_incomingSink);
-		_audioReceiver.registerOutgoingSource(_outgoingSink);
+		_audioReceiver.registerOutgoingSource(_outgoingSource);
 	}
 
 	public void start() {
@@ -238,38 +305,25 @@ public class SerialDecoder {
 		_audioReceiver.stopAudioIO();
 	}
 
-	public void sendByte(int val) {
+	// This function is called by the dispatch layer to send a packet.
+	@Override
+	public void sendPacket(Packet p) {
 		synchronized(this) {
-			_outgoing.add(val);
+			_outgoing.add(p);
 		}
 	}
 
-	public int bytesAvailable() {
-		synchronized(this) {
-			return _incoming.size();
-		}
-	}
 
-	public int readByte() {
-		synchronized(this) {
-			if (_incoming.size() == 0) {
-				return -1;
-			}
-			int ret = _incoming.get(0);
-			_incoming.remove(0);
-			return ret;
-		}
-	}
 
 	public void setPowerFreq(int freq) {
 		_audioReceiver.setPowerFrequency(freq);
 	}
 
 	public void setIoFrq(int freq) {
-		_ioBaseFrequency = freq;
+	//	_ioBaseFrequency = freq;
 
 		//TODO: STOP HARDCODING THIS FREQ
-		_threshold = (int) (22050 / _ioBaseFrequency / 2 * 0.45);
+	//	_threshold = (int) (22050 / _ioBaseFrequency / 2 * 0.45);
 
 		_audioReceiver.setTransmitFrequency(freq);
 	}
@@ -281,23 +335,23 @@ public class SerialDecoder {
 	// guarantee by AudioInterface that events will occur
 	// sequentially and originate from a single thread.
 
-	public void registerBytesAvailableListener(OnBytesAvailableListener _listener) {
-		_bytesAvailableListener = _listener;
+	public void registerPacketReceivedCallback (PktRecvCb listener) {
+		_PacketReceivedCallback = listener;
 	}
 
-	public void registerByteSentListener(OnByteSentListener _listener) {
-		_byteSentListener = _listener;
+	public void registerPacketSentCallback (PktSentCb listener) {
+		_PacketSentCallback = listener;
 	}
 
-	private void notifyBytesAvailable(int numberBytes) {
-		if (_bytesAvailableListener != null) {
-			_bytesAvailableListener.onBytesAvailable(numberBytes);
+	private void _notifyReceivedPacket (Packet p) {
+		if (_PacketReceivedCallback != null) {
+			_PacketReceivedCallback.recvPacket(p);
 		}
 	}
 
-	private void notifyByteSent() {
-		if (_byteSentListener != null) {
-			_byteSentListener.onByteSent();
+	private void _notifySentPacket () {
+		if (_PacketSentCallback != null) {
+			_PacketSentCallback.sentPacket();
 		}
 	}
 
@@ -307,35 +361,16 @@ public class SerialDecoder {
 
 	private boolean isClose(int value, int desired) {
 		//return value < desired + _threshold && value > desired - _threshold;
-		return value < desired + 4 && value > desired - 4;
+		return value < desired + 5 && value > desired - 5;
 	}
 
-	private byte calcParity(int in) {
-		byte parity = 0;
-		for (int i = 0; i < 8; i++) {
-			parity ^= ((in >> i) & 1);
-		}
-		return parity;
+	private boolean isClose(double value, double desired) {
+		//return value < desired + _threshold && value > desired - _threshold;
+		return value < desired + 5.0 && value > desired - 5.0;
 	}
 
-	private void advanceReceiveDataState() {
-		if (_rxBits == 10) {
-			if (calcParity(_rxByte >> 1) ==  (_rxByte >> 9)) {
-			//	System.out.println("checksum PASSED.");
-				synchronized(this) {
-					_incoming.add((_rxByte >> 1) & 0xFF);
-					notifyBytesAvailable(_incoming.size());
-				}
-			}
-			else
-			{
-				System.out.println("checksum failed.");
-			}
-			rxState = receiveState.IDLE;
-		}
-		else {
-			rxState = receiveState.DATA;
-		}
+	private boolean _int2man (int i) {
+		return i == 1;
 	}
 
 	/////////////////////////////
@@ -345,11 +380,8 @@ public class SerialDecoder {
 	private final IncomingSink _incomingSink = new IncomingSink() {
 		@Override
 		public void handleNextBit(int transistionPeriod, EdgeType edge) {
-			//isHighToLow = !isHighToLow;
-			System.out.println("Tran: " + transistionPeriod + " HL: " + edge);
-		//	_currentEdgeLength = transistionPeriod;
-		//	_currentEdgeHigh = isHighToLow;
-			switch (rxState) {
+System.out.println("Tran: " + transistionPeriod + " HL: " + edge);
+			switch (_rxState) {
 				case IDLE:
 					receiveIdle(transistionPeriod, edge);
 					break;
@@ -359,44 +391,51 @@ public class SerialDecoder {
 				default:
 					break;
 			}
-		//	_lastEdgeLength = _currentEdgeLength;*/
 		}
 	};
 
-	private final OutgoingSource _outgoingSink = new OutgoingSource() {
+	private final OutgoingSource _outgoingSource = new OutgoingSource() {
 		@Override
-		public boolean getNextBit() {
+		public boolean getNextManchesterBit() {
 			boolean ret = false;
+
 			switch (_txState) {
-			case DATA:
-				ret = transmitData();
-				break;
-			case IDLE:
-				if(_idleCycleCount < _idleCycles) {
-					_idleCycleCount++;
-				}
+				case IDLE:
+					// Check if there is a packet in the queue that we can
+					// transmit now.
+					synchronized(SerialDecoder.this) {
+						if (_outgoing.size() > 0) {
+System.out.println("got packet to send");
+							_outPacket = _outgoing.get(0);
+							_outgoing.remove(0);
 
-				synchronized(SerialDecoder.this) {
-					if (_outgoing.size() > 0 && _idleCycleCount == _idleCycles) {
-						int byteToSend = _outgoing.get(0);
-						_outgoing.remove(0);
+							_outPacket.compressToBuffer();
 
-						int parity = calcParity(byteToSend);
-						_txByte = (byteToSend << 1) | (parity << 9);
-						_txState = TransmitState.PENDING;
+							_txState = TransmitState.PREAMBLE;
+							_txPreambleBitLen = 4;
+						}
 					}
-				}
 
-				ret = transmitIdle();
-				break;
-			case PENDING:
-				ret = transmitPending();
-				break;
-			default:
-				break;
+					ret = transmitIdle();
+					break;
+
+				case PREAMBLE:
+					ret = transmitPreamble();
+					break;
+
+				case DATA:
+					ret = transmitData();
+					break;
+
+				case POSTAMBLE:
+					ret = transmitPostamble();
+					break;
+
+				default:
+					break;
 			}
-			_txBitPosition = _txBitPosition == 0 ? 1 : 0;
-
+			_txBitHalf = (_txBitHalf == 1) ? 0 : 1;
+			_txLastManBit = ret;
 			return ret;
 		}
 	};

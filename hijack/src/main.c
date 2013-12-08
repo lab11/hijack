@@ -67,23 +67,9 @@ uint8_t pbadMessage[] = {
 uint16_t temp_buf[100] = {0};
 uint8_t buf_idx= 0;
 
-void periodicTimerFn (void) {
-	static uint8_t ats = 0;
-	//ats = csm_advanceTransmitState();
-	pal_setDigitalGpio(pal_gpio_mic, ats);
-	ats = (ats) ? 0 : 1;
-	//csm_finishAdvanceTransmitState();
-}
-
-void captureTimerFn(uint16_t elapsedTime, uint8_t isHigh) {
-	struct csm_timer_struct timingData;
-	timingData.elapsedTime = elapsedTime;
-	timingData.signal = !isHigh;
-	csm_rxEdgeInterrupt(&timingData);
-}
 
 void packetReceivedCallback(packet_t* pkt) {
-
+	booted_packet.data[0] = 0xBB;
 }
 
 void packetSentCallback(void) {
@@ -104,8 +90,8 @@ void packetSentCallback(void) {
 		fe_writeTxBuffer(outMessage, 6);
 	}*/
 
-	util_delayMs(5000);
 	booted_packet.data[0]++;
+	util_delayMs(1000);
 	fe_sendPacket(&booted_packet);
 }
 
@@ -155,8 +141,10 @@ void initializeSystem(void) {
 	fe_registerBufferSender(csm_sendBuffer);
 
 	pal_registerPeriodicTimerCb(csm_txTimerInterrupt);
+	pal_registerCaptureTimerCb(csm_rxEdgeInterrupt);
+
+
 	//pal_registerPeriodicTimerCb(periodicTimerFn);
-//	pal_registerCaptureTimerCb(captureTimerFn);
 
 //	pal_setDigitalGpio(pal_gpio_mic, 0);
 //	pal_setDigitalGpio(pal_gpio_mic, 1);

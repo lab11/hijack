@@ -22,6 +22,7 @@ import java.io.FileWriter;
 import java.io.IOException;
 import java.text.SimpleDateFormat;
 import java.util.Date;
+import java.util.concurrent.ArrayBlockingQueue;
 
 import android.annotation.SuppressLint;
 import android.media.AudioFormat;
@@ -65,7 +66,7 @@ public class AudioReceiver {
 	final private int _sampleFrequency = 44100;
 
 	// HiJack is powered at 21kHz
-	private int _powerFrequency = 21000;
+	private int _powerFrequency = 10000;
 
 	// IO is FSK-modulated at either 613 or 1226 Hz (0 / 1)
 	private int _ioBaseFrequency = 613;
@@ -87,6 +88,11 @@ public class AudioReceiver {
 	AudioRecord _audioRecord;
 	Thread _inputThread;
 
+	Thread _audioProcessThread;
+
+	// To process incoming audio data in a separate thread
+	private final ArrayBlockingQueue<audioBuffer> audioProcessQueue = new ArrayBlockingQueue<audioBuffer>(128);
+
 	///////////////////////////////////////////////
 	// Output state
 	///////////////////////////////////////////////
@@ -105,11 +111,13 @@ public class AudioReceiver {
 	private int _powerFrequencyPos = 0;
 
 	private short[] _stereoBuffer;
-	private short[] _recBuffer;
+	//private short[] _recBuffer;
 
 	private boolean _isInitialized = false;
 	private boolean _isRunning = false;
 	private boolean _stop = false;
+
+	private final static int BUF_SAMPLE_LEN = 8000;
 
 	///////////////////////////////////////////////
 	// Input state
@@ -143,6 +151,11 @@ public class AudioReceiver {
 	// zero-crossings to find the distance between
 	// peaks
 	private int _edgeDistance = 0;
+
+	class audioBuffer {
+		public int numSamples;
+		public short[] buffer;
+	}
 
 
 	///////////////////////////////////////////////
@@ -198,7 +211,7 @@ public class AudioReceiver {
 		boolean isHigh[] = new boolean[_bitsInBuffer];
 
 		for (int i = 0; i < _bitsInBuffer; i++) {
-			isHigh[i] = _source.getNextBit();
+			isHigh[i] = _source.getNextManchesterBit();
 		}
 
 		int currentBit = -2;
@@ -238,7 +251,7 @@ public class AudioReceiver {
 		}
 	}
 
-	private void processInputBuffer(int shortsRead) {
+	private void processInputBuffer (audioBuffer abuf) {
 		// We are basically trying to figure out where the edges are here,
 		// in order to find the distance between them and pass that on to
 		// the higher levels.
@@ -246,8 +259,8 @@ public class AudioReceiver {
 
 	//	System.out.println("got input buffer!");
 
-		for (int i = 0; i < shortsRead; i++) {
-			int inSample = _recBuffer[i];
+		for (int i = 0; i < abuf.numSamples; i++) {
+			int inSample = abuf.buffer[i];
 
 		//	double movingAvg = addAndReturnMean(val);
 		//	double movingBias = addAndReturnBias(val);
@@ -256,6 +269,7 @@ public class AudioReceiver {
 
 			if (_debug) {
 				writeDebugString("" + inSample);
+				continue;
 			}
 
 			_edgeDistance++;
@@ -277,19 +291,19 @@ public class AudioReceiver {
 			// manchester encoding.
 			// Check if the derivative from this point to the last or this point
 			// to the second last spikes high enough to register.
-			if (Math.abs(inSample - previousInSample) > 15000 ||
-				(Math.abs(inSample - secondPreviousInSample)/2) > 15000) {
+			if (Math.abs(inSample - previousInSample) > 30001 ||
+				(Math.abs(inSample - secondPreviousInSample)/1) > 30000) {
 
 				if (inSample > previousInSample &&
 					inSignalLastEdge == EdgeType.FALLING &&
-					inSample > 2000) {
+					inSample > 20000) {
 					// This is a rising edge
 					_sink.handleNextBit(_edgeDistance, EdgeType.RISING);
 					_edgeDistance = 0;
 					inSignalLastEdge = EdgeType.RISING;
 				} else if (inSample < previousInSample &&
 					inSignalLastEdge == EdgeType.RISING &&
-					inSample < 2000) {
+					inSample < -20000) {
 					// Falling edge
 					_sink.handleNextBit(_edgeDistance, EdgeType.FALLING);
 					_edgeDistance = 0;
@@ -353,6 +367,7 @@ public class AudioReceiver {
 				_searchState = (_searchState == SearchState.NEGATIVE_PEAK) ? SearchState.POSITIVE_PEAK : SearchState.NEGATIVE_PEAK;
 			}*/
 		}
+
 	}
 
 	///////////////////////////////////////////////
@@ -418,10 +433,36 @@ public class AudioReceiver {
 		@Override
 		public void run() {
 			Thread.currentThread().setPriority(Thread.MIN_PRIORITY);
+			//android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_URGENT_AUDIO);
+
+			// Create a bunch of buffers to put audio data into
+			short[][] buffers = new short[256][BUF_SAMPLE_LEN];
+			// Keep track of the current buffer
+			int       bufIdx  = 0;
 
 			while (!_stop) {
-				int shortsRead = _audioRecord.read(_recBuffer, 0, _recBuffer.length);
-				processInputBuffer(shortsRead);
+				short[] buffer = buffers[bufIdx++ % buffers.length];
+				int shortsRead = _audioRecord.read(buffer, 0, buffer.length);
+				try {
+					audioBuffer ab = new audioBuffer();
+					ab.numSamples = shortsRead;
+					ab.buffer = buffer;
+					audioProcessQueue.put(ab);
+				} catch (InterruptedException intexp) { }
+				//processInputBuffer(shortsRead);
+			}
+		}
+	};
+
+	Runnable _audioProcessor = new Runnable() {
+		@Override
+		public void run() {
+
+			while (!_stop) {
+				try {
+					audioBuffer ab = audioProcessQueue.take();
+					processInputBuffer(ab);
+				} catch (InterruptedException intexp) { }
 			}
 		}
 	};
@@ -453,7 +494,7 @@ public class AudioReceiver {
 			throw new UnsupportedOperationException("AudioIO must be stopped to set a new source.");
 		}
 		_source = source;
-		_source.getNextBit();
+		_source.getNextManchesterBit();
 	}
 
 	public void registerIncomingSink(IncomingSink sink) {
@@ -523,9 +564,11 @@ public class AudioReceiver {
 
 		_outputThread = new Thread(_outputGenerator);
 		_inputThread = new Thread(_inputProcessor);
+		_audioProcessThread = new Thread(_audioProcessor);
 
 		_outputThread.start();
 		_inputThread.start();
+		_audioProcessThread.start();
 	}
 
 	public void stopAudioIO() {
@@ -534,6 +577,7 @@ public class AudioReceiver {
 		try {
 			_outputThread.join();
 			_inputThread.join();
+			_audioProcessThread.join();
 		} catch (InterruptedException e) {
 			e.printStackTrace();
 		}
@@ -555,17 +599,25 @@ public class AudioReceiver {
 
 	private void attachAudioResources() {
 		_audioTrack = new AudioTrack(AudioManager.STREAM_MUSIC,
-			_sampleFrequency, AudioFormat.CHANNEL_OUT_STEREO,
-			AudioFormat.ENCODING_PCM_16BIT, 44100,
+			_sampleFrequency,
+			AudioFormat.CHANNEL_OUT_STEREO,
+			AudioFormat.ENCODING_PCM_16BIT,
+			44100,
 			AudioTrack.MODE_STREAM);
 
-		int recBufferSize =
-				AudioRecord.getMinBufferSize(_sampleFrequency, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT);
-		_audioRecord = new AudioRecord(MediaRecorder.AudioSource.DEFAULT,
-			_sampleFrequency, AudioFormat.CHANNEL_IN_MONO,
-			AudioFormat.ENCODING_PCM_16BIT, recBufferSize);
+		int recBufferSize = AudioRecord.getMinBufferSize(_sampleFrequency,
+				AudioFormat.CHANNEL_IN_MONO,
+				AudioFormat.ENCODING_PCM_16BIT);
 
-		_recBuffer = new short[recBufferSize * 10];
+		System.out.println("REC BUFFER SIZE: " + recBufferSize);
+
+		_audioRecord = new AudioRecord(MediaRecorder.AudioSource.DEFAULT,
+			_sampleFrequency,
+			AudioFormat.CHANNEL_IN_MONO,
+			AudioFormat.ENCODING_PCM_16BIT,
+			recBufferSize);
+
+		//_recBuffer = new short[recBufferSize * 10];
 	}
 
 	private void releaseAudioResources() {
@@ -576,7 +628,7 @@ public class AudioReceiver {
 		_audioRecord = null;
 
 		_stereoBuffer = null;
-		_recBuffer = null;
+		//_recBuffer = null;
 	}
 
 	private double boundToShort(double in) {

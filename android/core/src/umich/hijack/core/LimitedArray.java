@@ -6,7 +6,7 @@ public class LimitedArray {
 	private int size = 0;  // size of array
 	private final int[] values;    // actual array
 	private int total;
-	private int avg; // average
+	private double avg; // average
 
 	public LimitedArray (int set_size) {
 		maxSize = set_size;
@@ -14,7 +14,7 @@ public class LimitedArray {
 		size = 0;
 		values = new int[maxSize];
 		total = 0;
-		avg = 0;
+		avg = 0.0;
 	}
 
 	public void insert (int e) {
@@ -27,7 +27,7 @@ public class LimitedArray {
 
 		// Recalculate metrics with the new value
 		total += e;
-		avg = total/size;
+		avg = (double)total / (double) size;
 
 		// Actually insert the new value
 		values[p] = e;
@@ -38,15 +38,15 @@ public class LimitedArray {
 		return size;
 	}
 
-	public int average () {
+	public double average () {
 		return avg;
 	}
 
-	public int variance () {
+	public double variance () {
 		long varianceSum = 0;
 		for (int i=0; i<size; i++) {
 			varianceSum += (long) (values[i]-avg) * (long) (values[i]-avg);
 		}
-		return (int) varianceSum/size;
+		return (double) varianceSum / (double) size;
 	}
 }

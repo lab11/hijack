@@ -7,12 +7,9 @@ import java.io.IOException;
 import java.text.SimpleDateFormat;
 import java.util.Date;
 
-import umich.hijack.core.OnByteSentListener;
-import umich.hijack.core.OnBytesAvailableListener;
 import umich.hijack.core.Packet;
 import umich.hijack.core.PacketDispatch;
-import umich.hijack.core.PacketDispatch.IncomingPacketListener;
-import umich.hijack.core.PacketDispatch.OutgoingByteListener;
+import umich.hijack.core.PktRecvCb;
 import umich.hijack.core.SerialDecoder;
 import android.app.Activity;
 import android.os.Bundle;
@@ -26,7 +23,7 @@ import android.widget.TextView;
 public class MainActivity extends Activity {
 
 	private SerialDecoder _serialDecoder;
-	private PacketDispatch _framer;
+	private PacketDispatch _dispatcher;
 
 	private boolean _nextFlag = false;
 	private boolean powerActive = true;
@@ -45,18 +42,19 @@ public class MainActivity extends Activity {
 		// Create a log file for this run of the application
 		newLogFile();
 
-		_framer = new PacketDispatch();
+		_dispatcher = new PacketDispatch();
 		_serialDecoder = new SerialDecoder();
 
-		_serialDecoder.registerBytesAvailableListener(_bytesAvailableListener);
-		_serialDecoder.registerByteSentListener(_byteSentListener);
+		_serialDecoder.registerPacketReceivedCallback(_dispatcher);
+		_serialDecoder.registerPacketSentCallback(_dispatcher);
 		_serialDecoder.setPowerFreq(12000);
 
-		_framer.registerIncomingPacketListener(bootedPkt, 3);
-		_framer.registerIncomingPacketListener(resumedPkt, 4);
-		_framer.registerIncomingPacketListener(powerdownPkt, 8);
+		_dispatcher.registerPacketTransmitter(_serialDecoder);
+		_dispatcher.registerIncomingPacketListener(bootedPkt, 3);
+		_dispatcher.registerIncomingPacketListener(resumedPkt, 4);
+		_dispatcher.registerIncomingPacketListener(powerdownPkt, 8);
 
-		_framer.registerOutgoingByteListener(_outgoingByteListener);
+		//_dispatcher.registerOutgoingByteListener(_outgoingByteListener);
 
 		System.out.println("woah");
 
@@ -208,7 +206,7 @@ public class MainActivity extends Activity {
 	///////////////////////////////////////////////
 	// Listeners
 	///////////////////////////////////////////////
-	private final OutgoingByteListener _outgoingByteListener = new OutgoingByteListener() {
+	/*private final OutgoingByteListener _outgoingByteListener = new OutgoingByteListener() {
 		@Override
 		public void OutgoingByteTransmit(int[] outgoingRaw) {
 			synchronized (MainActivity.this) {
@@ -219,54 +217,27 @@ public class MainActivity extends Activity {
 				_serialDecoder.sendByte(outgoingRaw[i]);
 			}
 		}
-	};
+	};*/
 
-	private final IncomingPacketListener bootedPkt = new IncomingPacketListener() {
+	private final PktRecvCb bootedPkt = new PktRecvCb() {
 		@Override
-		public void IncomingPacketReceive(Packet packet) {
+		public void recvPacket(Packet packet) {
+			System.out.println("GOT BOOTED PACKET");
 			addToLog("booted\n");
 		}
 	};
 
-	private final IncomingPacketListener resumedPkt = new IncomingPacketListener() {
+	private final PktRecvCb resumedPkt = new PktRecvCb() {
 		@Override
-		public void IncomingPacketReceive(Packet packet) {
+		public void recvPacket(Packet packet) {
 			addToLog("resumed\n");
 		}
 	};
 
-	private final IncomingPacketListener powerdownPkt = new IncomingPacketListener() {
+	private final PktRecvCb powerdownPkt = new PktRecvCb() {
 		@Override
-		public void IncomingPacketReceive(Packet packet) {
+		public void recvPacket(Packet packet) {
 			addToLog("power down\n");
-		}
-	};
-
-	private final OnByteSentListener _byteSentListener = new OnByteSentListener() {
-		@Override
-		public void onByteSent() {
-			synchronized (MainActivity.this) {
-				//_pendingTransmitBytes--;
-				//if (_pendingTransmitBytes == 0) {
-				//	int[] toSend = encode();
-				//	for (int i = 0; i < toSend.length; i++) {
-				//		_framer.transmitByte(toSend[i]);
-				//	}
-				//	_framer.transmitEnd();
-				//}
-			}
-		}
-	};
-
-	private final OnBytesAvailableListener _bytesAvailableListener = new OnBytesAvailableListener() {
-		@Override
-		public void onBytesAvailable(int count) {
-			while(count > 0) {
-				int byteVal = _serialDecoder.readByte();
-				//System.out.println("Received: " + byteVal);
-				_framer.receiveByte(byteVal);
-				count--;
-			}
 		}
 	};
 
