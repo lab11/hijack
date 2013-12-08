@@ -163,6 +163,7 @@ System.out.println("Transmitting packet data " + manbit);
 		_avgEdgePeriod = _timesBetweenEdges.average();
 		//System.out.println("AVERAGE TIME: " + avgEdgePeriod);
 
+
 		// Check if we:
 		//  - just saw a rising edge
 		//  - and that that edge was twice as far from the previous edge as the
@@ -178,6 +179,7 @@ System.out.println("Transmitting packet data " + manbit);
 			if (_timesBetweenEdges.variance() < 5.0) {
 			 // This is a start bit!
 			_rxState = receiveState.DATA;
+			_audioReceiver.packetReceiveStart();
 			System.out.println("got start bit " + _timesBetweenEdges.variance() + " " + _avgEdgePeriod + " " + timeSinceLastEdge);
 			// Generate a new packet object to receive this packet into
 			_inPacket = new Packet();
@@ -242,6 +244,7 @@ System.out.println("Transmitting packet data " + manbit);
 		} else if (timeSinceLastEdge > _avgEdgePeriod*3) {
 			// End of the packet
 			_rxState = receiveState.IDLE;
+			_audioReceiver.packetReceiveStop();
 			System.out.println("EOP");
 			boolean valid = _inPacket.processReceivedPacket();
 			if (valid) {
@@ -251,6 +254,7 @@ System.out.println("Transmitting packet data " + manbit);
 		} else {
 			// This is a spurious edge
 			_rxState = receiveState.IDLE;
+			_audioReceiver.packetReceiveStop();
 			System.out.println("EOP - BOOO");
 			return;
 		}

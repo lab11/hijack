@@ -157,6 +157,8 @@ public class AudioReceiver {
 		public short[] buffer;
 	}
 
+	private boolean _receivingPacket = false;
+
 
 	///////////////////////////////////////////////
 	// Debug Stuff
@@ -219,7 +221,15 @@ public class AudioReceiver {
 		synchronized(this) {
 			double powerMutiplier = Math.PI * _powerFrequency / _sampleFrequency * 2;
 
+
 			for (int i = 0; i < _stereoBuffer.length/2; i++) {
+
+			//	if (_receivingPacket) {
+			//		// turn output off when receiving packet
+			//		_stereoBuffer[i*2] = 0;
+			//		_stereoBuffer[i*2+1] = 0;
+			//		continue;
+			//	}
 
 				if (i % ((_outHighHighBuffer.length)) == 0) {
 					currentBit += 2;
@@ -287,12 +297,34 @@ public class AudioReceiver {
 				}
 			}*/
 
+			// settings that work on shitty phones
 			// Try to determine if this audio sample represents an edge in the
 			// manchester encoding.
 			// Check if the derivative from this point to the last or this point
 			// to the second last spikes high enough to register.
+		/*	if (Math.abs(inSample - previousInSample) > 15000 ||
+				(Math.abs(inSample - secondPreviousInSample)/1) > 15000) {
+
+				if (inSample > previousInSample &&
+					inSignalLastEdge == EdgeType.FALLING &&
+					inSample > 2000) {
+					// This is a rising edge
+					_sink.handleNextBit(_edgeDistance, EdgeType.RISING);
+					_edgeDistance = 0;
+					inSignalLastEdge = EdgeType.RISING;
+				} else if (inSample < previousInSample &&
+					inSignalLastEdge == EdgeType.RISING &&
+					inSample < -2000) {
+					// Falling edge
+					_sink.handleNextBit(_edgeDistance, EdgeType.FALLING);
+					_edgeDistance = 0;
+					inSignalLastEdge = EdgeType.FALLING;
+				}
+			}*/
+
+			// settings that work better on the htc one BEATS BY DR DRE
 			if (Math.abs(inSample - previousInSample) > 30001 ||
-				(Math.abs(inSample - secondPreviousInSample)/1) > 30000) {
+					(Math.abs(inSample - secondPreviousInSample)/1) > 30000) {
 
 				if (inSample > previousInSample &&
 					inSignalLastEdge == EdgeType.FALLING &&
@@ -411,6 +443,25 @@ public class AudioReceiver {
 		return _biasMean;
 	}
 */
+
+
+	// Call this on the start of a packet. That will shut up the audio output
+	public void packetReceiveStart () {
+		synchronized(this) {
+			_receivingPacket = true;
+		}
+	}
+
+	// Call this on the start of a packet. That will shut up the audio output
+	public void packetReceiveStop () {
+		synchronized(this) {
+			_receivingPacket = false;
+		}
+	}
+
+
+
+
 	///////////////////////////////////////////////
 	// Audio Interface
 	// Note: these exist primarily to pass control to
