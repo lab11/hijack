@@ -106,6 +106,7 @@ public class AudioReceiver {
 	private short[] _outLowLowBuffer;
 	private short[] _outHighLowBuffer;
 	private short[] _outLowHighBuffer;
+	private short[] _outFloatingBuffer;
 
 	private int _outBitBufferPos = 0;
 	private int _powerFrequencyPos = 0;
@@ -210,17 +211,30 @@ public class AudioReceiver {
 
 	private void updateOutputBuffer() {
 
-		boolean isHigh[] = new boolean[_bitsInBuffer];
+		SignalLevel outSignal[] = new SignalLevel[_bitsInBuffer];
 
 		for (int i = 0; i < _bitsInBuffer; i++) {
-			isHigh[i] = _source.getNextManchesterBit();
+			outSignal[i] = _source.getNextManchesterBit();
+			if (outSignal[i] == SignalLevel.HIGH) {
+				System.out.print("H");
+			} else if (outSignal[i] == SignalLevel.LOW) {
+				System.out.print("L");
+			}
 		}
 
+		//int currentBit = -1;
 		int currentBit = -2;
 
 		synchronized(this) {
 			double powerMutiplier = Math.PI * _powerFrequency / _sampleFrequency * 2;
 
+		//	System.out.println("steror length: " + _stereoBuffer.length);
+		//	System.out.println("_outHighHighBuffer length: " + _outHighHighBuffer.length);
+
+			SignalLevel thisBit = SignalLevel.FLOATING;
+			SignalLevel nextBit = SignalLevel.FLOATING;
+			SignalLevel thirdBit = SignalLevel.FLOATING;
+			int floatingBitBufferPos = 0;
 
 			for (int i = 0; i < _stereoBuffer.length/2; i++) {
 
@@ -232,28 +246,53 @@ public class AudioReceiver {
 			//	}
 
 				if (i % ((_outHighHighBuffer.length)) == 0) {
+					//currentBit += 1;
 					currentBit += 2;
 					_outBitBufferPos = 0;
+
+					thisBit = outSignal[currentBit];
+					nextBit = outSignal[currentBit+1];
+					if (currentBit < _bitsInBuffer-2) {
+						thirdBit = outSignal[currentBit+2];
+					}
 				}
 
+				if (i % ((_outFloatingBuffer.length)) == 0) {
+					floatingBitBufferPos = 0;
+				}
+
+				/*if (outSignal[currentBit] == SignalLevel.HIGH) {
+					_stereoBuffer[i*2] = -1*Short.MAX_VALUE;
+				} else if (outSignal[currentBit] == SignalLevel.LOW) {
+					_stereoBuffer[i*2] = Short.MAX_VALUE;
+				} else if (outSignal[currentBit] == SignalLevel.FLOATING) {
+					_stereoBuffer[i*2] = 0;
+				}*/
+
 				// Choose if we're sending a 1 or 0.
-				if (isHigh[currentBit] && isHigh[currentBit+1]) {
+				if (thisBit == SignalLevel.FLOATING) {
+					_stereoBuffer[i*2] = _outFloatingBuffer[floatingBitBufferPos++];
+				}
+				else if (thisBit == SignalLevel.LOW && nextBit == SignalLevel.LOW && thirdBit == SignalLevel.LOW){
+					_stereoBuffer[i*2] = Short.MAX_VALUE/2;
+				}
+				else if (thisBit == SignalLevel.LOW && nextBit == SignalLevel.LOW) {
 					_stereoBuffer[i*2] = _outHighHighBuffer[_outBitBufferPos++];
 				}
-				else if (!isHigh[currentBit] && !isHigh[currentBit+1]) {
+				else if (thisBit == SignalLevel.HIGH && nextBit == SignalLevel.HIGH) {
 					_stereoBuffer[i*2] = _outLowLowBuffer[_outBitBufferPos++];
 				}
-				else if (isHigh[currentBit] && !isHigh[currentBit+1]) {
+				else if (thisBit == SignalLevel.LOW && nextBit == SignalLevel.HIGH) {
 					_stereoBuffer[i*2] = _outHighLowBuffer[_outBitBufferPos++];
 				}
-				else if (!isHigh[currentBit] && isHigh[currentBit+1]) {
+				else if (thisBit == SignalLevel.HIGH && nextBit == SignalLevel.LOW) {
 					_stereoBuffer[i*2] = _outLowHighBuffer[_outBitBufferPos++];
 				}
 
 				// Toss the power signal on there. We keep a running signal across calls to this function
 				// with the _powerFrequencyPos var to ensure the wave is continuous.
 				_stereoBuffer[i*2+1] =  (short) boundToShort(
-					Math.sin(powerMutiplier * _powerFrequencyPos++) * Short.MAX_VALUE);
+					Math.sin(powerMutiplier * _powerFrequencyPos++) * (Short.MAX_VALUE/4));
 			}
 
 			// To prevent eventual overflows.
@@ -568,6 +607,7 @@ public class AudioReceiver {
 		_outHighLowBuffer = new short[bufferSize];
 		_outLowHighBuffer = new short[bufferSize];
 		_outLowLowBuffer = new short[bufferSize];
+		_outFloatingBuffer = new short[bufferSize * _bitsInBuffer];
 
 		for (int i = 0; i < bufferSize; i++) {
 
@@ -587,6 +627,12 @@ public class AudioReceiver {
 
 			_outLowHighBuffer[i] = (short) (
 				boundToShort(Math.sin((double)(i + bufferSize/2) * (double)4 * Math.PI * _ioBaseFrequency / _sampleFrequency) * Short.MAX_VALUE)
+			);
+		}
+
+		for (int i = 0; i < bufferSize * _bitsInBuffer; i++) {
+			_outFloatingBuffer[i] = (short) (
+				boundToShort(Math.sin((i) * Math.PI * _ioBaseFrequency / _sampleFrequency / 12.1) * Short.MAX_VALUE)
 			);
 		}
 
@@ -687,6 +733,7 @@ public class AudioReceiver {
 	}
 
 	private int getBufferSize() {
+		//return _sampleFrequency / _ioBaseFrequency / 2 / 2;
 		return _sampleFrequency / _ioBaseFrequency / 2;
 	}
 

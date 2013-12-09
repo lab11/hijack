@@ -46,7 +46,7 @@ extern volatile uint8_t pendingStart;
 #define IDLE_CYCLES 2
 // Used by the coding state machine to identify
 // long and short pulses.
-#define THRESHOLD 4
+#define THRESHOLD 100
 #define DELTAT 13
 
 #endif

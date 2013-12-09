@@ -47,7 +47,7 @@ volatile uint8_t pendingStart = 0;
 // STOP FIX
 
 
-packet_t booted_packet = {1, 0, 1, 0, 3, {0}};
+packet_t booted_packet = {5, 0, 1, 0, 3, {0}};
 
 
 
@@ -66,6 +66,8 @@ uint8_t pbadMessage[] = {
 
 uint16_t temp_buf[100] = {0};
 uint8_t buf_idx= 0;
+
+uint8_t sendingPacket = 0;
 
 
 void packetReceivedCallback(packet_t* pkt) {
@@ -90,9 +92,23 @@ void packetSentCallback(void) {
 		fe_writeTxBuffer(outMessage, 6);
 	}*/
 
+//	booted_packet.data[0]++;
+		sendingPacket = 0;
+}
+
+void setthedata (uint8_t d) {
+	booted_packet.data[0] = d;
+}
+
+void incthedata () {
 	booted_packet.data[0]++;
-	util_delayMs(1000);
-	fe_sendPacket(&booted_packet);
+}
+
+void allthedata (uint8_t a, uint8_t b, uint8_t c, uint8_t d) {
+	booted_packet.data[1] = a;
+	booted_packet.data[2] = b;
+	booted_packet.data[3] = c;
+	booted_packet.data[4] = d;
 }
 
 void updateAnalogOutputBuffer(void) {
@@ -188,7 +204,23 @@ int main () {
 
 	// STOP FIX
 
+	gpio_toggle(LED_PORT, LED_PIN);
+	gpio_toggle(LED_PORT, LED_PIN);
+	gpio_toggle(LED_PORT, LED_PIN);
+	gpio_toggle(LED_PORT, LED_PIN);
+	gpio_toggle(LED_PORT, LED_PIN);
+	gpio_toggle(LED_PORT, LED_PIN);
+//	gpio_toggle(LED_PORT, LED_PIN);
+
+//	P4SEL |= 0x02;
+
 	while (1) {
+
+		util_delayMs(1000);
+		if (!sendingPacket) {
+			sendingPacket = 1;
+			fe_sendPacket(&booted_packet);
+		}
 		//pal_setDigitalGpio(pal_gpio_led, 0);
 		//updateDigitalOutputBuffer();
 		//updateAnalogOutputBuffer();

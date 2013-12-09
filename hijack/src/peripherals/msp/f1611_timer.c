@@ -36,7 +36,8 @@ void timer_init (void) {
     // Comp. A Connect External Signal to CA0
     // Comp. A Enable Output Filter
     // enable comparator CA0 on P2.3 (P40 on epic)
-	CACTL2 = P2CA0+CAF;
+	//CACTL2 = P2CA0+CAF;
+	CACTL2 = P2CA0;
 	// enable comparator
 	CACTL1 |= CAON;
 

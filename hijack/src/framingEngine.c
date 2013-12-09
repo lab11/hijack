@@ -43,6 +43,8 @@ void fe_handleBufferReceived (uint8_t* buf, uint8_t len) {
 		return;
 	}
 
+	incthedata();
+
 
 	// Parse the buffer and create the packet
 	fe.rxPacket.length        = len - 2; // Subtract 2 for the header bit and the checksum
@@ -78,7 +80,7 @@ fe_error_e fe_sendPacket (packet_t* pkt) {
 	// Fill the outgoing buffer from the given packet
 	fe.outBufIdx = 0;
 	fe.outBuf[fe.outBufIdx] = ((pkt->power_down << PKT_POWERDOWN_OFFSET) & PKT_POWERDOWN_MASK) |
-	                          ((pkt->ack_requested << PKT_ACKREQ_OFFSET) & PKT_ACKREQ_OFFSET) |
+	                          ((pkt->ack_requested << PKT_ACKREQ_OFFSET) & PKT_ACKREQ_MASK) |
 	                          ((pkt->retries << PKT_RETRIES_OFFSET) & PKT_RETRIES_MASK) |
 	                          (pkt->type & PKT_TYPE_MASK);
 	sum = fe.outBuf[fe.outBufIdx++];

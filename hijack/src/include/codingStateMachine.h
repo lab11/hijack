@@ -93,7 +93,7 @@ typedef enum csm_receiveBits {
 } csm_receiveBitType_e;
 
 #define MAX_BUF_SIZE    128
-#define RX_PREAMBLE_LEN 4
+#define RX_PREAMBLE_LEN 7
 
 #define START_BIT    0
 #define IDLE_BIT     0

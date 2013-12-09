@@ -55,6 +55,7 @@ void pal_init(void) {
 	//gpio_init(DIN2_PORT, DIN2_PIN, GPIO_IN);
 	gpio_init(MIC_PORT, MIC_PIN, GPIO_OUT);
 	gpio_init(LED_PORT, LED_PIN, GPIO_OUT);
+	gpio_init(LED2_PORT, LED2_PIN, GPIO_OUT);
 
 	//gpio_init(LED_PORT, LED_PIN, GPIO_OUT);
 	//gpio_init(LED_PORT, LED_PIN, GPIO_OUT);

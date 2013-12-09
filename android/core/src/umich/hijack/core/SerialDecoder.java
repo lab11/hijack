@@ -26,6 +26,8 @@ public class SerialDecoder implements PktTransmitter {
 	private enum TransmitState { IDLE, PREAMBLE, DATA, POSTAMBLE };
 	private enum receiveState { IDLE, DATA };
 
+	private static final int NUM_PREAMBLE_BITS = 20;
+
 	// Receiver State
 
 	//TODO: REFACTOR THIS OUT
@@ -68,13 +70,13 @@ public class SerialDecoder implements PktTransmitter {
 	private Packet _outPacket;
 
 	// Number of bits to send in the preamble
-	private int _txPreambleBitLen = 4;
+	private int _txPreambleBitLen = NUM_PREAMBLE_BITS;
 	private int _txPostambleBitLen = 4;
 
 	// Whether to send the first or the second half of the manchester bit
 	private int _txBitHalf;
 
-	private boolean _txLastManBit;
+	private SignalLevel _txLastManBit;
 
 	private TransmitState _txState = TransmitState.IDLE;
 
@@ -90,17 +92,16 @@ public class SerialDecoder implements PktTransmitter {
 	/////////////////////////////
 
 	// Transmit just zeroes when in the idle state.
-	private boolean transmitIdle () {
-		return false;
+	private SignalLevel transmitIdle () {
+		return SignalLevel.FLOATING;
 	}
 
-	private boolean transmitPreamble () {
-System.out.println("transmitting a preamble");
+	private SignalLevel transmitPreamble () {
 		if (_txBitHalf == 1) {
 			if (_txPreambleBitLen == 0) {
 				_txState = TransmitState.DATA;
 			}
-			return !_txLastManBit;
+			return (_txLastManBit == SignalLevel.HIGH) ? SignalLevel.LOW : SignalLevel.HIGH;
 		}
 
 		_txPreambleBitLen--;
@@ -113,35 +114,33 @@ System.out.println("transmitting a preamble");
 		}
 	}
 
-	private boolean transmitData () {
+	private SignalLevel transmitData () {
 		if (_txBitHalf == 1) {
-			return !_txLastManBit;
+			return (_txLastManBit == SignalLevel.HIGH) ? SignalLevel.LOW : SignalLevel.HIGH;
 		}
 
 		try {
-			boolean manbit = _int2man(_outPacket.getBit());
-System.out.println("Transmitting packet data " + manbit);
+			SignalLevel manbit = _int2man(_outPacket.getBit());
 			return manbit;
 		} catch (IndexOutOfBoundsException excp) {
 			_txPostambleBitLen = 4;
 			_txState = TransmitState.POSTAMBLE;
-			return false;
+			return SignalLevel.LOW;
 		}
 	}
 
-	private boolean transmitPostamble () {
-		System.out.println("Transmitting postamble");
+	private SignalLevel transmitPostamble () {
 		if (_txBitHalf == 1) {
 			if (_txPostambleBitLen > 0) {
 				// If we are in the midst of sending postamble zeros, just
 				// send zeroes.
-				return false;
+				return SignalLevel.LOW;
 			} else if (_txPostambleBitLen == 0) {
 				// The last bit is an actual manchester bit, so we should
 				// treat it as such.
 				_txState = TransmitState.IDLE;
 				_notifySentPacket();
-				return !_txLastManBit;
+				return (_txLastManBit == SignalLevel.HIGH) ? SignalLevel.LOW : SignalLevel.HIGH;
 			}
 		}
 
@@ -149,10 +148,10 @@ System.out.println("Transmitting packet data " + manbit);
 
 		if (_txPostambleBitLen == 0) {
 			// Send a 1 bit so the receiver knows the packet is over.
-			return true;
+			return SignalLevel.HIGH;
 		} else {
 			// Otherwise just send all zeroes
-			return false;
+			return SignalLevel.LOW;
 		}
 	}
 
@@ -179,7 +178,7 @@ System.out.println("Transmitting packet data " + manbit);
 			if (_timesBetweenEdges.variance() < 5.0) {
 			 // This is a start bit!
 			_rxState = receiveState.DATA;
-			_audioReceiver.packetReceiveStart();
+			//_audioReceiver.packetReceiveStart();
 			System.out.println("got start bit " + _timesBetweenEdges.variance() + " " + _avgEdgePeriod + " " + timeSinceLastEdge);
 			// Generate a new packet object to receive this packet into
 			_inPacket = new Packet();
@@ -244,7 +243,7 @@ System.out.println("Transmitting packet data " + manbit);
 		} else if (timeSinceLastEdge > _avgEdgePeriod*3) {
 			// End of the packet
 			_rxState = receiveState.IDLE;
-			_audioReceiver.packetReceiveStop();
+			//_audioReceiver.packetReceiveStop();
 			System.out.println("EOP");
 			boolean valid = _inPacket.processReceivedPacket();
 			if (valid) {
@@ -254,7 +253,7 @@ System.out.println("Transmitting packet data " + manbit);
 		} else {
 			// This is a spurious edge
 			_rxState = receiveState.IDLE;
-			_audioReceiver.packetReceiveStop();
+			//_audioReceiver.packetReceiveStop();
 			System.out.println("EOP - BOOO");
 			return;
 		}
@@ -373,8 +372,11 @@ System.out.println("Transmitting packet data " + manbit);
 		return value < desired + 5.0 && value > desired - 5.0;
 	}
 
-	private boolean _int2man (int i) {
-		return i == 1;
+	private SignalLevel _int2man (int i) {
+		if (i == 1) {
+			return SignalLevel.HIGH;
+		}
+		return SignalLevel.LOW;
 	}
 
 	/////////////////////////////
@@ -400,8 +402,8 @@ System.out.println("Tran: " + transistionPeriod + " HL: " + edge);
 
 	private final OutgoingSource _outgoingSource = new OutgoingSource() {
 		@Override
-		public boolean getNextManchesterBit() {
-			boolean ret = false;
+		public SignalLevel getNextManchesterBit() {
+			SignalLevel ret = SignalLevel.FLOATING;
 
 			switch (_txState) {
 				case IDLE:
@@ -416,7 +418,7 @@ System.out.println("got packet to send");
 							_outPacket.compressToBuffer();
 
 							_txState = TransmitState.PREAMBLE;
-							_txPreambleBitLen = 4;
+							_txPreambleBitLen = NUM_PREAMBLE_BITS;
 						}
 					}
 

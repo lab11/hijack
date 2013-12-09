@@ -34,12 +34,12 @@ int txTempBit = 0;
 void csm_receiveIdle (uint16_t elapsedTime, uint8_t isHigh) {
 
 	// Start checking if we have found a start bit
-	if (csm.rxPreambleReceivedEdges >= RX_PREAMBLE_LEN && // seen the preamble
-	    isHigh == 1 // rising edge
+	if (csm.rxPreambleReceivedEdges >= RX_PREAMBLE_LEN //&& // seen the preamble
+	   // isHigh == 0 // rising edge
  	   ) {
 	   	uint32_t sum, average;
 		uint16_t max, min;
-
+//setthedata(elapsedTime);
 		// Calculate some simple statistics about the edges
 		sum = 0;
 		max = 0;
@@ -52,22 +52,34 @@ void csm_receiveIdle (uint16_t elapsedTime, uint8_t isHigh) {
 			if (val < min) min = val;
 		}
 
+	//	allthedata(csm.rxPreambleBuffer[0]>>8, csm.rxPreambleBuffer[0], csm.rxPreambleBuffer[2], csm.rxPreambleBuffer[3]);
+
 		// Check that the previous four edges were about the same time between
 		// each other.
 		average = sum / RX_PREAMBLE_LEN;
-		if (max - min < average / 10) {
-
+	//	if (max - min < average / 10) {
+		if (csm_isWithinThreshold(max, min)) {
+//setthedata(average>>8);
+	//		incthedata();
+gpio_toggle(LED_PORT, LED_PIN);
+setthedata(0xfa);
 			// Check that we just saw a double width signal (which at this point
 			// is the start bit)
 			if (csm_isWithinThreshold(elapsedTime / 2, average)) {
-
+gpio_toggle(LED_PORT, LED_PIN);
+gpio_toggle(LED_PORT, LED_PIN);
+gpio_toggle(LED_PORT, LED_PIN);
 				// Found start bit!
+	//			setthedata(0xc9);
 
 				// Move to the receiving data state
 				csm.rxState = CSM_RXSTATE_DATA;
 				csm.rxDeltaT  = average;
 
 				// TODO CHANGE THIS
+				// Set the time between tx interrupts to the current time
+				// between rx interrupts. This lets us slow down or speed up
+				// if the phone does.
 				TBCCR0 = average;
 				return;
 			}
@@ -75,11 +87,11 @@ void csm_receiveIdle (uint16_t elapsedTime, uint8_t isHigh) {
 	}
 
 	// If we get here, we have not found a start bit
-
+//incthedata();
 	// Save the timing between edges here
 	csm.rxPreambleReceivedEdges++;
 	csm.rxPreambleBuffer[csm.rxPreambleIdx++] = elapsedTime;
-	csm.rxPreambleIdx %= 4;
+	csm.rxPreambleIdx %= RX_PREAMBLE_LEN;
 }
 
 // Called when an edge comes in after we have made it to the data portion
@@ -89,6 +101,7 @@ void csm_receiveData (uint16_t elapsedTime, uint8_t isHigh) {
 	// Two short pulses => Same bit as last bit
 	// One long pulse   => different bit
 	// Anything else    => nope nope nope.
+//	setthedata(0xaa);
 	if (csm_isWithinThreshold(elapsedTime, csm.rxDeltaT)) {
 		// The next bit is the same as the previous bit,
 		// but we must wait for the next short pulse.
@@ -102,6 +115,7 @@ void csm_receiveData (uint16_t elapsedTime, uint8_t isHigh) {
 	} else {
 		// Either an error occurred or we just got to the end of the packet.
 		if (csm.rxByteIdx >= 1 && csm.rxBitIdx == 0) {
+gpio_toggle(LED_PORT, LED_PIN);
 			csm.rxCallback(csm.rxBufRaw, csm.rxByteIdx);
 		}
 		csm_receiveClear();
@@ -122,6 +136,7 @@ void csm_receiveDataExtra (uint16_t elapsedTime, uint8_t isHigh) {
 	} else {
 		// Either an error occurred or we just got to the end of the packet.
 		if (csm.rxByteIdx >= 1 && csm.rxBitIdx == 0) {
+gpio_toggle(LED_PORT, LED_PIN);
 			csm.rxCallback(csm.rxBufRaw, csm.rxByteIdx);
 		}
 		csm_receiveClear();
@@ -171,6 +186,7 @@ void csm_receiveAddBit (csm_receiveBitType_e bit) {
 
 // Function that is called when an interrupt is detected
 void csm_rxEdgeInterrupt (uint16_t elapsedTime, uint8_t isHigh) {
+	gpio_toggle(LED2_PORT, LED2_PIN);
 	switch (csm.rxState) {
 		case CSM_RXSTATE_IDLE:       csm_receiveIdle(elapsedTime, isHigh); break;
 		case CSM_RXSTATE_DATA:       csm_receiveData(elapsedTime, isHigh); break;

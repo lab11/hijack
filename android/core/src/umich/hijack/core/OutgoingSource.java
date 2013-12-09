@@ -21,5 +21,5 @@ public interface OutgoingSource {
 	// Returns a 1 (true) or 0 (false) to indicate
 	// what the next value the audio system should output
 	// should be.
-	boolean getNextManchesterBit();
+	SignalLevel getNextManchesterBit();
 }
