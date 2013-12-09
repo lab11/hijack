@@ -21,28 +21,43 @@ import java.util.ArrayList;
 import java.util.List;
 
 public class SerialDecoder implements PktTransmitter {
+
+	// Object that connects to the audio hardware of the phone. Also handles
+	// edge detection.
 	private final AudioReceiver _audioReceiver;
 
+	//////////////////
+	// Constants
+	//////////////////
+
+	// How many preamble bits to transmit before sending the start bit
+	private static final int NUM_PREAMBLE_BITS = 20;
+	// How many bits to send after the last byte of the packet
+	private static final int NUM_POSTAMBLE_BITS = 4;
+
+	// The values of the different critical bits in packet construction
+	private final static int START_BIT = 0;
+	private final static int PREAMBLE_BIT = 1;
+
+	/////////////////
+	// ENUMS
+	/////////////////
+
+	// States for the tx and rx state machines
 	private enum TransmitState { IDLE, PREAMBLE, DATA, POSTAMBLE };
 	private enum receiveState { IDLE, DATA };
 
-	private static final int NUM_PREAMBLE_BITS = 20;
-
-	// Receiver State
-
-	//TODO: REFACTOR THIS OUT
-	//private int _ioBaseFrequency = 613;
-
-	//private int _threshold = 7;
-
-	// FOR THE MSP430FR5969:
-	//private int _threshold = 7;
-
-	// FOR THE MSP430F1611:
-	//private int _threshold = 12;
-
+	// Used to note whether we just saw a single baud or double baud
 	private enum edgeSpace {SINGLE, DOUBLE};
+
+	// An edge that is marked as a bit corresponds to one where we decoded
+	// the next a bit and a null edge is just a transition in the manchester
+	// encoding that did not determine a bit.
 	private enum edgeResult {BIT, NULL};
+
+	///////////////////
+	// Receive State
+	///////////////////
 
 	// Keep track of the times between edges in the preamble of the message.
 	// This lets us determine the baud rate on the fly.
@@ -50,18 +65,18 @@ public class SerialDecoder implements PktTransmitter {
 	// The average of timesBetweenEdges
 	private double _avgEdgePeriod;
 	// Whether the last edge let us set a bit or not
-	private edgeResult _lastEdgeResult = edgeResult.BIT;
+	private edgeResult _lastEdgeResult;
 
+	// What the RX state machine is doing
 	private receiveState _rxState = receiveState.IDLE;
 
 	// The packet currently being received. Only one packet can be received
 	// at a time, so we do not keep an array.
 	private Packet _inPacket;
 
+	//////////////////////
 	// Transmit State
-
-	private final static int START_BIT = 0;
-	private final static int PREAMBLE_BIT = 1;
+	//////////////////////
 
 	// Array of packets to be transmitted. Many packets can be queued up.
 	private final List<Packet> _outgoing = new ArrayList<Packet>();
@@ -69,17 +84,23 @@ public class SerialDecoder implements PktTransmitter {
 	// The packet currently being transmitted.
 	private Packet _outPacket;
 
-	// Number of bits to send in the preamble
-	private int _txPreambleBitLen = NUM_PREAMBLE_BITS;
-	private int _txPostambleBitLen = 4;
+	// Keep track of how many more bits we need to send for the preamble
+	// and postamble.
+	private int _txPreambleBitLen;
+	private int _txPostambleBitLen;
 
 	// Whether to send the first or the second half of the manchester bit
 	private int _txBitHalf;
-
+	// What the value of the last manchester bit is (so we can send the
+	// opposite for the next bit)
 	private SignalLevel _txLastManBit;
 
+	// TX state
 	private TransmitState _txState = TransmitState.IDLE;
 
+	//////////////////////
+	// Callbacks
+	//////////////////////
 
 	// Listeners for packet receive and sent events
 	private PktRecvCb _PacketReceivedCallback = null;
@@ -123,7 +144,7 @@ public class SerialDecoder implements PktTransmitter {
 			SignalLevel manbit = _int2man(_outPacket.getBit());
 			return manbit;
 		} catch (IndexOutOfBoundsException excp) {
-			_txPostambleBitLen = 4;
+			_txPostambleBitLen = NUM_POSTAMBLE_BITS;
 			_txState = TransmitState.POSTAMBLE;
 			return SignalLevel.LOW;
 		}
