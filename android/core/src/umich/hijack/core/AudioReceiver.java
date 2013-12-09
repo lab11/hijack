@@ -63,110 +63,115 @@ public class AudioReceiver {
 	///////////////////////////////////////////////
 
 	// Most Android devices support 'CD-quality' sampling frequencies.
-	final private int _sampleFrequency = 44100;
+	final private int SAMPLE_FREQUENCY = 44100;
 
-	// HiJack is powered at 21kHz
+	// HiJack is powered by default at 10kHz
+	// This can be adjusted by higher layers if the hijack board is not
+	// sufficiently powered.
 	private int _powerFrequency = 10000;
 
 	// IO is FSK-modulated at either 613 or 1226 Hz (0 / 1)
 	private int _ioBaseFrequency = 613;
 
+	// How much to divide the amplitude of the power signal by. This is useful
+	// for phones that can supply a significant amount of power from the
+	// audio device and interfere with the other signals.
+	private final int _powerSignalDivisor = 3;
+
+	// This sets the number of samples that are requested from the microphone
+	// at once.
+	private final static int BUF_SAMPLE_LEN = 8000;
+
 	///////////////////////////////////////////////
 	// Main interfaces
 	///////////////////////////////////////////////
 
-	// Used for receiving and transmitting the
-	// primitive data elements (1s and 0s)
+	// These objects handle incoming and outgoing bits. OutgoingSource is called
+	// to get the next bit to send over the audio channel and IncomingSink
+	// is called when a bit is received from HiJack.
 	private OutgoingSource _source = null;
 	private IncomingSink _sink = null;
 
-	// For Audio Output
+	// Android classes for audio input and output
 	AudioTrack _audioTrack;
-	Thread _outputThread;
-
-	// For Audio Input
 	AudioRecord _audioRecord;
+
+	// These threads handle recording and playing the audio signals
+	Thread _outputThread;
 	Thread _inputThread;
 
+	// This thread processes the incoming audio data buffers. The _inputThread
+	// puts the buffers in a queue and this thread pulls them from the queue
+	// and processes them.
 	Thread _audioProcessThread;
 
-	// To process incoming audio data in a separate thread
-	private final ArrayBlockingQueue<audioBuffer> audioProcessQueue = new ArrayBlockingQueue<audioBuffer>(128);
+	// This queue transports data between the _inputThread and the
+	// _audioProcessThread
+	private final ArrayBlockingQueue<audioBuffer> audioProcessQueue =
+			new ArrayBlockingQueue<audioBuffer>(128);
+
+	// This object is returned from the _inputThread. It contains a buffer
+	// of samples from the microphone and the number of samples in that buffer.
+	class audioBuffer {
+		public int numSamples;
+		public short[] buffer;
+	}
 
 	///////////////////////////////////////////////
 	// Output state
 	///////////////////////////////////////////////
 
-	// For performance reasons we batch update
-	// the audio output buffer with this many bits.
+	// For performance reasons we batch update the audio output buffer with this
+	// many manchester bits. This allows us to load the next buffer while
+	// the current audio is playing.
 	final private int _bitsInBuffer = 100;
 
-	// To ensure efficient computation we create some buffers.
+	// These buffers hold samples of the waveforms that are played on the
+	// output audio channel. They are precomputed for performance.
 	private short[] _outHighHighBuffer;
 	private short[] _outLowLowBuffer;
 	private short[] _outHighLowBuffer;
 	private short[] _outLowHighBuffer;
 	private short[] _outFloatingBuffer;
 
-	private int _outBitBufferPos = 0;
+	// This is the x axis value for the power signal being played on the audio
+	// channel. This is global state because it needs to be kept between calls
+	// to fill the output buffer so we maintain a smooth signal.
 	private int _powerFrequencyPos = 0;
 
+	// This is the buffer used to hold samples for playing on the audio
+	// hardware.
 	private short[] _stereoBuffer;
-	//private short[] _recBuffer;
 
+	// These keep state about the audio subsystem
 	private boolean _isInitialized = false;
 	private boolean _isRunning = false;
 	private boolean _stop = false;
-
-	private final static int BUF_SAMPLE_LEN = 8000;
 
 	///////////////////////////////////////////////
 	// Input state
 	///////////////////////////////////////////////
 
-//	private enum SearchState { ZERO_CROSS, NEGATIVE_PEAK, POSITIVE_PEAK };
-//	private SearchState _searchState = SearchState.ZERO_CROSS;
+	// Store previous microphone samples so we can look for edges.
+	private int _previousInSample = 0;
+	private int _secondPreviousInSample = 0;
 
-//	private enum siglev {HIGH, LOW, FLOATING};
-//	private siglev inSignalLevel = siglev.FLOATING;
+	// Keep track of the last edge found so we can look for the opposite next
+	private EdgeType _inSignalLastEdge = EdgeType.FALLING;
 
-	private int previousInSample = 0;
-	private int secondPreviousInSample = 0;
-	private EdgeType inSignalLastEdge = EdgeType.FALLING;
-
-//	private LimitedArray lastInValues = new LimitedArray(200);
-
-	// Part of a circular buffer to find the peak of each
-	// signal.
-//	private final int _toMean[] = new int[] {0, 0, 0};
-//	private int _toMeanPos = 0;
-
-	// Part of a circular buffer to keep track of any
-	// bias in the signal over the past 144 measurements
-//	private final int _biasArray[] = new int[3600];
-//	private boolean _biasArrayFull = false;
-//	private double _biasMean = 0.0;
-//	private int _biasArrayPos = 0;
-
-	// Keeps track of the maximal value between two
-	// zero-crossings to find the distance between
-	// peaks
+	// Keeps track of the number of samples between the last edge and the
+	// current sample. Used to keep track of the edge spacing for upper layers
+	// to process.
 	private int _edgeDistance = 0;
-
-	class audioBuffer {
-		public int numSamples;
-		public short[] buffer;
-	}
-
-	private boolean _receivingPacket = false;
-
 
 	///////////////////////////////////////////////
 	// Debug Stuff
 	///////////////////////////////////////////////
 
-	private FileWriter _debugOut;
+	// Set this to true to disable the main audio processing and instead
+	// write all samples to an output file.
 	private final boolean _debug = false;
+	private FileWriter _debugOut;
 
 	@SuppressLint("SimpleDateFormat")
 	private String getDebugFileName() {
@@ -175,7 +180,7 @@ public class AudioReceiver {
 		SimpleDateFormat sdf = new SimpleDateFormat("yyyyMMdd_HHmmss");
 		String currentDateandTime = sdf.format(new Date());
 
-		File debugFile = new File(root, "debug_" + currentDateandTime + ".csv");
+		File debugFile = new File(root, "debug_" +currentDateandTime+ ".data");
 
 		return debugFile.getAbsolutePath();
 	}
@@ -209,44 +214,40 @@ public class AudioReceiver {
 	// Processors
 	///////////////////////////////////////////////
 
+	// This fills the _stereobuffer with audio values to play to the HiJack.
+	// It reads from uppers layers to get which bits to send.
 	private void updateOutputBuffer() {
 
 		SignalLevel outSignal[] = new SignalLevel[_bitsInBuffer];
 
+		// Read in _bitsInBuffer number of samples from the upper layer
 		for (int i = 0; i < _bitsInBuffer; i++) {
 			outSignal[i] = _source.getNextManchesterBit();
-			if (outSignal[i] == SignalLevel.HIGH) {
-			} else if (outSignal[i] == SignalLevel.LOW) {
-			}
 		}
 
-		//int currentBit = -1;
-		int currentBit = -2;
-
 		synchronized(this) {
-			double powerMutiplier = Math.PI * _powerFrequency / _sampleFrequency * 2;
+			double powerMutiplier = Math.PI * _powerFrequency / SAMPLE_FREQUENCY * 2;
 
-		//	System.out.println("steror length: " + _stereoBuffer.length);
-		//	System.out.println("_outHighHighBuffer length: " + _outHighHighBuffer.length);
+			// Index of the current manchester bit to put on the output buffer
+			int currentBit = -2;
 
+			// Holders for the current bits being looked at to determine what
+			// output signal to put in the buffer
 			SignalLevel thisBit = SignalLevel.FLOATING;
 			SignalLevel nextBit = SignalLevel.FLOATING;
 			SignalLevel thirdBit = SignalLevel.FLOATING;
-			int floatingBitBufferPos = 0;
+
+			// Our current positions in the buffers we are copying from
+			int floatingBitIdx = 0;
+			int outBitIdx = 0;
 
 			for (int i = 0; i < _stereoBuffer.length/2; i++) {
 
-			//	if (_receivingPacket) {
-			//		// turn output off when receiving packet
-			//		_stereoBuffer[i*2] = 0;
-			//		_stereoBuffer[i*2+1] = 0;
-			//		continue;
-			//	}
-
-				if (i % ((_outHighHighBuffer.length)) == 0) {
-					//currentBit += 1;
+				// Each time we have copied the contents of the samples buffer
+				// into the output buffer fetch the next manchester bit
+				if (i % _outHighHighBuffer.length == 0) {
 					currentBit += 2;
-					_outBitBufferPos = 0;
+					outBitIdx = 0;
 
 					thisBit = outSignal[currentBit];
 					nextBit = outSignal[currentBit+1];
@@ -255,89 +256,73 @@ public class AudioReceiver {
 					}
 				}
 
+				// The buffer for the data when no output packet is being driven
+				// on the audio lines. This buffer is longer than the per
+				// bit buffers so we have a different index and a different
+				// reset point.
 				if (i % ((_outFloatingBuffer.length)) == 0) {
-					floatingBitBufferPos = 0;
+					floatingBitIdx = 0;
 				}
 
-				/*if (outSignal[currentBit] == SignalLevel.HIGH) {
-					_stereoBuffer[i*2] = -1*Short.MAX_VALUE;
-				} else if (outSignal[currentBit] == SignalLevel.LOW) {
-					_stereoBuffer[i*2] = Short.MAX_VALUE;
-				} else if (outSignal[currentBit] == SignalLevel.FLOATING) {
-					_stereoBuffer[i*2] = 0;
-				}*/
-
-				// Choose if we're sending a 1 or 0.
+				// Copy from the correct buffer given what data we are sending
 				if (thisBit == SignalLevel.FLOATING) {
-					_stereoBuffer[i*2] = _outFloatingBuffer[floatingBitBufferPos++];
-				}
-				else if (thisBit == SignalLevel.LOW && nextBit == SignalLevel.LOW && thirdBit == SignalLevel.LOW){
+					// In between data packets just send a sin wave
+					_stereoBuffer[i*2] = _outFloatingBuffer[floatingBitIdx++];
+
+				} else if (thisBit == SignalLevel.LOW &&
+						   nextBit == SignalLevel.LOW &&
+						   thirdBit == SignalLevel.LOW) {
+					// This is the postamble where we need to send consecutive
+					// low bits.
 					_stereoBuffer[i*2] = Short.MAX_VALUE/2;
-				}
-				else if (thisBit == SignalLevel.LOW && nextBit == SignalLevel.LOW) {
-					_stereoBuffer[i*2] = _outHighHighBuffer[_outBitBufferPos++];
-				}
-				else if (thisBit == SignalLevel.HIGH && nextBit == SignalLevel.HIGH) {
-					_stereoBuffer[i*2] = _outLowLowBuffer[_outBitBufferPos++];
-				}
-				else if (thisBit == SignalLevel.LOW && nextBit == SignalLevel.HIGH) {
-					_stereoBuffer[i*2] = _outHighLowBuffer[_outBitBufferPos++];
-				}
-				else if (thisBit == SignalLevel.HIGH && nextBit == SignalLevel.LOW) {
-					_stereoBuffer[i*2] = _outLowHighBuffer[_outBitBufferPos++];
+
+				} else if (thisBit == SignalLevel.HIGH &&
+						   nextBit == SignalLevel.HIGH) {
+					_stereoBuffer[i*2] = _outHighHighBuffer[outBitIdx++];
+
+				} else if (thisBit == SignalLevel.LOW &&
+						   nextBit == SignalLevel.LOW) {
+					_stereoBuffer[i*2] = _outLowLowBuffer[outBitIdx++];
+
+				} else if (thisBit == SignalLevel.HIGH &&
+						   nextBit == SignalLevel.LOW) {
+					_stereoBuffer[i*2] = _outHighLowBuffer[outBitIdx++];
+
+				} else if (thisBit == SignalLevel.LOW &&
+						   nextBit == SignalLevel.HIGH) {
+					_stereoBuffer[i*2] = _outLowHighBuffer[outBitIdx++];
+
 				}
 
-
-				if (thisBit != SignalLevel.FLOATING) {
-					_stereoBuffer[i*2+1] =  0;
-				} else {
-					// Toss the power signal on there. We keep a running signal across calls to this function
-					// with the _powerFrequencyPos var to ensure the wave is continuous.
-					_stereoBuffer[i*2+1] =  (short) boundToShort(
-						Math.sin(powerMutiplier * _powerFrequencyPos++) * (Short.MAX_VALUE/3));
-				}
+				// Toss the power signal on there. We keep a running signal
+				// across calls to this function with the _powerFrequencyPos
+				// var to ensure the wave is continuous.
+				_stereoBuffer[i*2+1] =  (short) boundToShort(
+						Math.sin(powerMutiplier * _powerFrequencyPos++) *
+						(Short.MAX_VALUE/_powerSignalDivisor)
+					);
 			}
 
 			// To prevent eventual overflows.
-			_powerFrequencyPos = _powerFrequencyPos % (_sampleFrequency * _powerFrequency);
+			_powerFrequencyPos = _powerFrequencyPos %
+			                      (SAMPLE_FREQUENCY * _powerFrequency);
 		}
 	}
 
+	// This function is called on an incoming buffers of data from the
+	// microphone. It processes it looking for edges.
 	private void processInputBuffer (audioBuffer abuf) {
-		// We are basically trying to figure out where the edges are here,
-		// in order to find the distance between them and pass that on to
-		// the higher levels.
-		//double meanVal = 0.0;
-
-	//	System.out.println("got input buffer!");
-
 		for (int i = 0; i < abuf.numSamples; i++) {
 			int inSample = abuf.buffer[i];
-
-		//	double movingAvg = addAndReturnMean(val);
-		//	double movingBias = addAndReturnBias(val);
-
-			//meanVal = movingAvg - movingBias;
 
 			if (_debug) {
 				writeDebugString("" + inSample);
 				continue;
 			}
 
+			// Increment the edge distance from the last edge since we are
+			// processing a new sample.
 			_edgeDistance++;
-
-		/*	lastInValues.insert(val);
-			if (inSignalLevel != siglev.FLOATING) {
-				int lastInValuesAvg = lastInValues.average();
-				//int lastInValuesVar = lastInValues.variance();
-				if (lastInValuesAvg > -2000 &&
-					lastInValuesAvg < 2000) {
-				//	lastInValuesVar < 200 &&
-				//	lastInValuesVar > 200) {
-					inSignalLevel = siglev.FLOATING;
-					System.out.println("RESET TO FLOATING");
-				}
-			}*/
 
 			// settings that work on shitty phones
 			// Try to determine if this audio sample represents an edge in the
@@ -365,151 +350,38 @@ public class AudioReceiver {
 			}*/
 
 			// settings that work better on the htc one BEATS BY DR DRE
-			if (Math.abs(inSample - previousInSample) > 30000 ||
-					(Math.abs(inSample - secondPreviousInSample)/1) > 30000) {
+			if (Math.abs(inSample - _previousInSample) > 30000 ||
+			    (Math.abs(inSample - _secondPreviousInSample)/1) > 30000) {
 
-				if (inSample > previousInSample &&
-					inSignalLastEdge == EdgeType.FALLING &&
+				if (inSample > _previousInSample &&
+					_inSignalLastEdge == EdgeType.FALLING &&
 					inSample > 20000) {
 					// This is a rising edge
 					_sink.handleNextBit(_edgeDistance, EdgeType.RISING);
 					_edgeDistance = 0;
-					inSignalLastEdge = EdgeType.RISING;
-				} else if (inSample < previousInSample &&
-					inSignalLastEdge == EdgeType.RISING &&
+					_inSignalLastEdge = EdgeType.RISING;
+				} else if (inSample < _previousInSample &&
+					_inSignalLastEdge == EdgeType.RISING &&
 					inSample < -20000) {
 					// Falling edge
 					_sink.handleNextBit(_edgeDistance, EdgeType.FALLING);
 					_edgeDistance = 0;
-					inSignalLastEdge = EdgeType.FALLING;
+					_inSignalLastEdge = EdgeType.FALLING;
 				}
 			}
 
 			// Shift the samples for the next iteration
-			secondPreviousInSample = previousInSample;
-			previousInSample = inSample;
-
-		/*	if (inSignalLevel == siglev.FLOATING) {
-				if (val < 4000) {
-					// Let's call this value equivalent to 0 (GND).
-					_sink.handleNextBit(_edgeDistance, EdgeType.FALLING);
-					_edgeDistance = 0;
-					//System.out.println("floating to low");
-					inSignalLevel = siglev.LOW;
-
-				} else if (val > 4000) {
-					// This is a high to low transition! Signal the upper layer
-					_sink.handleNextBit(_edgeDistance, EdgeType.RISING);
-					_edgeDistance = 0;
-					//System.out.println("floating to high");
-					inSignalLevel = siglev.HIGH;
-				}
-			} else if (inSignalLevel == siglev.HIGH) {
-				if (val < 5000) {
-
-					// This is a low to high transition! Signal the upper layer
-					_sink.handleNextBit(_edgeDistance, EdgeType.FALLING);
-					_edgeDistance = 0;
-					//System.out.println("high to low");
-					inSignalLevel = siglev.LOW;
-				}
-
-			} else {
-				if (val > 5000) {
-					// This is a high to low transition! Signal the upper layer
-					_sink.handleNextBit(_edgeDistance, EdgeType.RISING);
-					_edgeDistance = 0;
-					//System.out.println("low to high");
-					inSignalLevel = siglev.HIGH;
-				}
-			}*/
-
-
-/*
-			// Cold boot we simply set the search based on
-			// where the first region is located.
-			if (_searchState == SearchState.ZERO_CROSS) {
-				_searchState = meanVal < 0 ? SearchState.NEGATIVE_PEAK : SearchState.POSITIVE_PEAK;
-			}
-
-			// Have we just seen a zero transition?
-			if ((meanVal < 0 && _searchState == SearchState.POSITIVE_PEAK) ||
-				(meanVal > 0 && _searchState == SearchState.NEGATIVE_PEAK)) {
-
-				_sink.handleNextBit(_edgeDistance, _searchState == SearchState.POSITIVE_PEAK);
-				_edgeDistance = 0;
-				_searchState = (_searchState == SearchState.NEGATIVE_PEAK) ? SearchState.POSITIVE_PEAK : SearchState.NEGATIVE_PEAK;
-			}*/
+			_secondPreviousInSample = _previousInSample;
+			_previousInSample = inSample;
 		}
-
 	}
 
 	///////////////////////////////////////////////
-	// Incoming Bias and Smoothing Functions
-	///////////////////////////////////////////////
-/*
-	private double addAndReturnMean(int in) {
-		_toMean[_toMeanPos++] = in;
-		_toMeanPos = _toMeanPos % _toMean.length;
-
-		double sum = 0.0;
-
-		for (int i = 0; i < _toMean.length; i++) {
-			sum += _toMean[i];
-		}
-
-		return sum / _toMean.length;
-	}
-
-	private double addAndReturnBias(int in) {
-		if (_biasArrayFull) {
-			_biasMean -= (double)_biasArray[_biasArrayPos] / (double)_biasArray.length;
-		}
-
-		_biasArray[_biasArrayPos++] = in;
-		_biasMean += (double)in / (double)_biasArray.length;
-
-		// If we're at the end of the bias array we move the
-		// position back to 0 and recalculate the mean from scratch
-		// keep small inaccuracies from influencing it.
-		if (_biasArrayPos == _biasArray.length) {
-			double totalSum = 0.0;
-			for (int i = 0; i < _biasArray.length; i++) {
-				totalSum += _biasArray[i];
-			}
-			_biasMean = totalSum / _biasArray.length;
-			_biasArrayPos = 0;
-			_biasArrayFull = true;
-		}
-
-		return _biasMean;
-	}
-*/
-
-
-	// Call this on the start of a packet. That will shut up the audio output
-	public void packetReceiveStart () {
-		synchronized(this) {
-			_receivingPacket = true;
-		}
-	}
-
-	// Call this on the start of a packet. That will shut up the audio output
-	public void packetReceiveStop () {
-		synchronized(this) {
-			_receivingPacket = false;
-		}
-	}
-
-
-
-
-	///////////////////////////////////////////////
-	// Audio Interface
-	// Note: these exist primarily to pass control to
-	//       the responsible subfunctions. NO code here.
+	// Audio Interface Threads
 	///////////////////////////////////////////////
 
+	// This thread makes sure there is always data ready to send to the audio
+	// output.
 	Runnable _outputGenerator = new Runnable() {
 		@Override
 		public void run() {
@@ -522,11 +394,12 @@ public class AudioReceiver {
 		}
 	};
 
+	// This thread constantly reads from the audio interface getting microphone
+	// sample buffers.
 	Runnable _inputProcessor = new Runnable() {
 		@Override
 		public void run() {
 			Thread.currentThread().setPriority(Thread.MIN_PRIORITY);
-			//android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_URGENT_AUDIO);
 
 			// Create a bunch of buffers to put audio data into
 			short[][] buffers = new short[256][BUF_SAMPLE_LEN];
@@ -542,11 +415,12 @@ public class AudioReceiver {
 					ab.buffer = buffer;
 					audioProcessQueue.put(ab);
 				} catch (InterruptedException intexp) { }
-				//processInputBuffer(shortsRead);
 			}
 		}
 	};
 
+	// This thread processes the data from the microphone. It takes the buffers
+	// from the queue and calls the edge detection algorithm.
 	Runnable _audioProcessor = new Runnable() {
 		@Override
 		public void run() {
@@ -567,45 +441,48 @@ public class AudioReceiver {
 		return _powerFrequency;
 	}
 
-	public void setPowerFrequency(int powerFrequency) {
+	public void setPowerFrequency (int powerFrequency) {
 		_powerFrequency = powerFrequency;
 	}
 
-	public void setTransmitFrequency(int transmitFrequency) {
+	public void setTransmitFrequency (int transmitFrequency) {
 		synchronized (this) {
 			_ioBaseFrequency = transmitFrequency;
 			initialize();
 		}
 	}
 
-	public int getTransmitFrequency() {
+	public int getTransmitFrequency () {
 		return _ioBaseFrequency;
 	}
 
-	public void registerOutgoingSource(OutgoingSource source) {
+	public void registerOutgoingSource (OutgoingSource source) {
 		if (_isRunning) {
-			throw new UnsupportedOperationException("AudioIO must be stopped to set a new source.");
+			throw new UnsupportedOperationException(
+					"AudioIO must be stopped to set a new source.");
 		}
 		_source = source;
 		_source.getNextManchesterBit();
 	}
 
-	public void registerIncomingSink(IncomingSink sink) {
+	public void registerIncomingSink (IncomingSink sink) {
 		if (_isRunning) {
-			throw new UnsupportedOperationException("AudioIO must be stopped to set a new sink.");
+			throw new UnsupportedOperationException(
+					"AudioIO must be stopped to set a new sink.");
 		}
 		_sink = sink;
 	}
 
 	public void initialize() {
-		// Create buffers to hold what a high and low
-		// frequency waveform looks like
+		// Create buffers to hold what a high and low frequency waveform
+		// looks like
 		int bufferSize = getBufferSize();
 
 		// The stereo buffer should be large enough to ensure
 		// that scheduling doesn't mess it up.
 		_stereoBuffer = new short[bufferSize * _bitsInBuffer];
 
+		// Allocate all of the data holding buffers
 		_outHighHighBuffer = new short[bufferSize];
 		_outHighLowBuffer = new short[bufferSize];
 		_outLowHighBuffer = new short[bufferSize];
@@ -613,29 +490,31 @@ public class AudioReceiver {
 		_outFloatingBuffer = new short[bufferSize * _bitsInBuffer];
 
 		for (int i = 0; i < bufferSize; i++) {
-
-			// NOTE: We bound this due to some weird java issues with casting to
-			// shorts.+
 			_outHighHighBuffer[i] = (short) (
-				boundToShort(Math.sin((double)i * (double)2 * Math.PI * _ioBaseFrequency / _sampleFrequency) * Short.MAX_VALUE)
+				boundToShort(Math.sin((double)(i + bufferSize) * (double)2 *
+				Math.PI * _ioBaseFrequency / SAMPLE_FREQUENCY) * Short.MAX_VALUE)
 			);
 
 			_outHighLowBuffer[i] = (short) (
-				boundToShort(Math.sin((double)i * (double)4 * Math.PI * _ioBaseFrequency / _sampleFrequency) * Short.MAX_VALUE)
+				boundToShort(Math.sin((double)(i + bufferSize/2) * (double)4 *
+				Math.PI * _ioBaseFrequency / SAMPLE_FREQUENCY) * Short.MAX_VALUE)
 			);
 
 			_outLowLowBuffer[i] = (short) (
-				boundToShort(Math.sin((double)(i + bufferSize) * (double)2 * Math.PI * _ioBaseFrequency / _sampleFrequency) * Short.MAX_VALUE)
+				boundToShort(Math.sin((double)i * (double)2 * Math.PI *
+				_ioBaseFrequency / SAMPLE_FREQUENCY) * Short.MAX_VALUE)
 			);
 
 			_outLowHighBuffer[i] = (short) (
-				boundToShort(Math.sin((double)(i + bufferSize/2) * (double)4 * Math.PI * _ioBaseFrequency / _sampleFrequency) * Short.MAX_VALUE)
+				boundToShort(Math.sin((double)i * (double)4 * Math.PI *
+				_ioBaseFrequency / SAMPLE_FREQUENCY) * Short.MAX_VALUE)
 			);
 		}
 
 		for (int i = 0; i < bufferSize * _bitsInBuffer; i++) {
 			_outFloatingBuffer[i] = (short) (
-				boundToShort(Math.sin((i) * Math.PI * _ioBaseFrequency / _sampleFrequency / 12.1) * Short.MAX_VALUE)
+				boundToShort(Math.sin((i) * Math.PI *
+				_ioBaseFrequency / SAMPLE_FREQUENCY / 12.1) * Short.MAX_VALUE)
 			);
 		}
 
@@ -699,20 +578,20 @@ public class AudioReceiver {
 
 	private void attachAudioResources() {
 		_audioTrack = new AudioTrack(AudioManager.STREAM_MUSIC,
-			_sampleFrequency,
+			SAMPLE_FREQUENCY,
 			AudioFormat.CHANNEL_OUT_STEREO,
 			AudioFormat.ENCODING_PCM_16BIT,
 			44100,
 			AudioTrack.MODE_STREAM);
 
-		int recBufferSize = AudioRecord.getMinBufferSize(_sampleFrequency,
+		int recBufferSize = AudioRecord.getMinBufferSize(SAMPLE_FREQUENCY,
 				AudioFormat.CHANNEL_IN_MONO,
 				AudioFormat.ENCODING_PCM_16BIT);
 
 		System.out.println("REC BUFFER SIZE: " + recBufferSize);
 
 		_audioRecord = new AudioRecord(MediaRecorder.AudioSource.DEFAULT,
-			_sampleFrequency,
+			SAMPLE_FREQUENCY,
 			AudioFormat.CHANNEL_IN_MONO,
 			AudioFormat.ENCODING_PCM_16BIT,
 			recBufferSize);
@@ -737,10 +616,7 @@ public class AudioReceiver {
 
 	private int getBufferSize() {
 		//return _sampleFrequency / _ioBaseFrequency / 2 / 2;
-		return _sampleFrequency / _ioBaseFrequency / 2;
+		return SAMPLE_FREQUENCY / _ioBaseFrequency / 2;
 	}
 
-
 }
-
-
