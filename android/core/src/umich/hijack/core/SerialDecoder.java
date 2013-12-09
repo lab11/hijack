@@ -20,6 +20,17 @@ package umich.hijack.core;
 import java.util.ArrayList;
 import java.util.List;
 
+/*
+ * This file handles the layer between the Packet interface and manchester bits.
+ *
+ * On the receive side, this class takes in edges and the time between edges,
+ * parses the manchester encoding, and creates a packet object to pass on
+ * to higher layers.
+ *
+ * On the transmit side, this class takes packets and passes the manchester
+ * encoded version to the audio interface layer.
+ */
+
 public class SerialDecoder implements PktTransmitter {
 
 	// Object that connects to the audio hardware of the phone. Also handles

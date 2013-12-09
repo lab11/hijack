@@ -21,14 +21,30 @@ import java.util.ArrayList;
 
 public class PacketDispatch implements PktRecvCb, PktSentCb {
 
-	// Callbacks that want different packet types
-	private final ArrayList<ArrayList<PktRecvCb>> _recvListeners;
+	/////////////////
+	// Constants
+	/////////////////
+
 	private final static int MAX_PACKET_TYPES = 16;
 
+	//////////////////
+	// Callbacks
+	//////////////////
+
+	// List of packet callback functions that are waiting for packets of
+	// various types to come in.
+	private final ArrayList<ArrayList<PktRecvCb>> _recvListeners;
+
+
+	/////////////////////
+	// Other State
+	/////////////////////
+
+	// Object that can actually transmit packets
 	private PktTransmitter _pktTx;
 
 
-
+	// Init
 	public PacketDispatch() {
 		// Create the data structure for callbacks
 		_recvListeners = new ArrayList<ArrayList<PktRecvCb>>(MAX_PACKET_TYPES);
@@ -41,7 +57,7 @@ public class PacketDispatch implements PktRecvCb, PktSentCb {
 	// Register Callback Functions
 	///////////////////////////////
 
-	// Register with the dispatcher what should actually trasmit packets.
+	// Register with the dispatcher what should actually transmit packets.
 	public void registerPacketTransmitter (PktTransmitter ptx) {
 		_pktTx = ptx;
 	}
@@ -58,6 +74,11 @@ public class PacketDispatch implements PktRecvCb, PktSentCb {
 		_recvListeners.get(packetTypeID).add(listener);
 	}
 
+	/////////////////////
+	// Public functions
+	/////////////////////
+
+	// Transmit a packet
 	public void sendPacket (Packet p) {
 		_pktTx.sendPacket(p);
 	}
