@@ -34,8 +34,8 @@ int txTempBit = 0;
 void csm_receiveIdle (uint16_t elapsedTime, uint8_t isHigh) {
 
 	// Start checking if we have found a start bit
-	if (csm.rxPreambleReceivedEdges >= RX_PREAMBLE_LEN //&& // seen the preamble
-	   // isHigh == 0 // rising edge
+	if (csm.rxPreambleReceivedEdges >= RX_PREAMBLE_LEN && // seen the preamble
+	    isHigh == 0 // rising edge
  	   ) {
 	   	uint32_t sum, average;
 		uint16_t max, min;

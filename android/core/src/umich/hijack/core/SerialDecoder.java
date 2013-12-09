@@ -178,8 +178,9 @@ public class SerialDecoder implements PktTransmitter {
 			if (_timesBetweenEdges.variance() < 5.0) {
 			 // This is a start bit!
 			_rxState = receiveState.DATA;
+			_lastEdgeResult = edgeResult.BIT;
 			//_audioReceiver.packetReceiveStart();
-			System.out.println("got start bit " + _timesBetweenEdges.variance() + " " + _avgEdgePeriod + " " + timeSinceLastEdge);
+//			System.out.println("got start bit " + _timesBetweenEdges.variance() + " " + _avgEdgePeriod + " " + timeSinceLastEdge);
 			// Generate a new packet object to receive this packet into
 			_inPacket = new Packet();
 
@@ -187,7 +188,7 @@ public class SerialDecoder implements PktTransmitter {
 
 			} else {
 				// nearly
-				System.out.println("near start bit: " + _timesBetweenEdges.variance() + " " + _avgEdgePeriod);
+//				System.out.println("near start bit: " + _timesBetweenEdges.variance() + " " + _avgEdgePeriod);
 			}
 
 		}
@@ -212,26 +213,6 @@ public class SerialDecoder implements PktTransmitter {
 	//   | 1 period             | falling   | -                    || 1      |
 	private void receiveData (int timeSinceLastEdge, EdgeType edge) {
 		edgeSpace thisEdgeSpacing; // Number of bauds from the previous edge
-/*
-		// Determine if the edge we got is a single or double baud
-		if (isClose(_avgEdgePeriod, timeSinceLastEdge)) {
-			thisEdgeSpacing = edgeSpace.SINGLE;
-		} else if (isClose(_avgEdgePeriod*2, timeSinceLastEdge)) {
-			thisEdgeSpacing = edgeSpace.DOUBLE;
-		} else if (timeSinceLastEdge > _avgEdgePeriod*3) {
-			// End of the packet
-			_rxState = receiveState.IDLE;
-			System.out.println("EOP");
-			boolean valid = _inPacket.processReceivedPacket();
-			if (valid) {
-				_notifyReceivedPacket(_inPacket);
-			}
-			return;
-		} else {
-			// This is a spurious edge
-			return;
-		}
-*/
 
 		// Determine if the edge we got is a single or double baud
 		if (timeSinceLastEdge < ((_avgEdgePeriod*3)/2)) {
@@ -244,7 +225,7 @@ public class SerialDecoder implements PktTransmitter {
 			// End of the packet
 			_rxState = receiveState.IDLE;
 			//_audioReceiver.packetReceiveStop();
-			System.out.println("EOP");
+//			System.out.println("EOP");
 			boolean valid = _inPacket.processReceivedPacket();
 			if (valid) {
 				_notifyReceivedPacket(_inPacket);
@@ -254,18 +235,18 @@ public class SerialDecoder implements PktTransmitter {
 			// This is a spurious edge
 			_rxState = receiveState.IDLE;
 			//_audioReceiver.packetReceiveStop();
-			System.out.println("EOP - BOOO");
+//			System.out.println("EOP - BOOO");
 			return;
 		}
 
 		if (thisEdgeSpacing == edgeSpace.DOUBLE) {
 			if (edge == EdgeType.FALLING) {
 				// add a 1 to the packet
-				System.out.println("1");
+//				System.out.println("1");
 				_inPacket.addBit(1);
 			} else { // rising edge
 				// add a 0 to the packet
-				System.out.println("0");
+//				System.out.println("0");
 				_inPacket.addBit(0);
 			}
 			_lastEdgeResult = edgeResult.BIT;
@@ -276,11 +257,11 @@ public class SerialDecoder implements PktTransmitter {
 			} else if (_lastEdgeResult == edgeResult.NULL) {
 				if (edge == EdgeType.RISING) {
 					// This edge is a 0
-					System.out.println("0");
+//					System.out.println("0");
 					_inPacket.addBit(0);
 				} else { // falling edge
 					// This edge is a 1
-					System.out.println("1");
+//					System.out.println("1");
 					_inPacket.addBit(1);
 				}
 				_lastEdgeResult = edgeResult.BIT;
@@ -386,7 +367,7 @@ public class SerialDecoder implements PktTransmitter {
 	private final IncomingSink _incomingSink = new IncomingSink() {
 		@Override
 		public void handleNextBit(int transistionPeriod, EdgeType edge) {
-System.out.println("Tran: " + transistionPeriod + " HL: " + edge);
+//System.out.println("Tran: " + transistionPeriod + " HL: " + edge);
 			switch (_rxState) {
 				case IDLE:
 					receiveIdle(transistionPeriod, edge);
@@ -411,7 +392,7 @@ System.out.println("Tran: " + transistionPeriod + " HL: " + edge);
 					// transmit now.
 					synchronized(SerialDecoder.this) {
 						if (_outgoing.size() > 0) {
-System.out.println("got packet to send");
+//System.out.println("got packet to send");
 							_outPacket = _outgoing.get(0);
 							_outgoing.remove(0);
 

@@ -47,7 +47,8 @@ volatile uint8_t pendingStart = 0;
 // STOP FIX
 
 
-packet_t booted_packet = {5, 0, 1, 0, 3, {0}};
+packet_t booted_packet = {1, 0, 1, 0, 3, {0}};
+packet_t data_packet = {2, 0, 1, 0, 8, {0}};
 
 
 
@@ -68,10 +69,11 @@ uint16_t temp_buf[100] = {0};
 uint8_t buf_idx= 0;
 
 uint8_t sendingPacket = 0;
+uint8_t gotack = 0;
 
 
 void packetReceivedCallback(packet_t* pkt) {
-	booted_packet.data[0] = 0xBB;
+	gotack = 1;
 }
 
 void packetSentCallback(void) {
@@ -174,7 +176,7 @@ void initializeSystem(void) {
 
 	// Start the transmit callback-driven
 	// loop
-	fe_sendPacket(&booted_packet);
+//	fe_sendPacket(&booted_packet);
 }
 
 // This is the main loop. It's not very
@@ -215,12 +217,42 @@ int main () {
 //	P4SEL |= 0x02;
 
 	while (1) {
+		while (sendingPacket) {
+			util_delayMs(100);
+		}
+		sendingPacket = 1;
+		fe_sendPacket(&booted_packet);
 
 		util_delayMs(1000);
-		if (!sendingPacket) {
-			sendingPacket = 1;
-			fe_sendPacket(&booted_packet);
+		booted_packet.data[0]++;
+		if (gotack) {
+			break;
 		}
+	}
+
+	gotack = 0;
+
+	while (1) {
+		while (sendingPacket) {
+			util_delayMs(100);
+		}
+		sendingPacket = 1;
+		fe_sendPacket(&data_packet);
+
+		util_delayMs(1000);
+		data_packet.data[0]++;
+		if (gotack) {
+			break;
+		}
+	}
+
+
+
+
+
+	while (1) {
+
+
 		//pal_setDigitalGpio(pal_gpio_led, 0);
 		//updateDigitalOutputBuffer();
 		//updateAnalogOutputBuffer();

@@ -216,9 +216,7 @@ public class AudioReceiver {
 		for (int i = 0; i < _bitsInBuffer; i++) {
 			outSignal[i] = _source.getNextManchesterBit();
 			if (outSignal[i] == SignalLevel.HIGH) {
-				System.out.print("H");
 			} else if (outSignal[i] == SignalLevel.LOW) {
-				System.out.print("L");
 			}
 		}
 
@@ -289,10 +287,15 @@ public class AudioReceiver {
 					_stereoBuffer[i*2] = _outLowHighBuffer[_outBitBufferPos++];
 				}
 
-				// Toss the power signal on there. We keep a running signal across calls to this function
-				// with the _powerFrequencyPos var to ensure the wave is continuous.
-				_stereoBuffer[i*2+1] =  (short) boundToShort(
-					Math.sin(powerMutiplier * _powerFrequencyPos++) * (Short.MAX_VALUE/4));
+
+				if (thisBit != SignalLevel.FLOATING) {
+					_stereoBuffer[i*2+1] =  0;
+				} else {
+					// Toss the power signal on there. We keep a running signal across calls to this function
+					// with the _powerFrequencyPos var to ensure the wave is continuous.
+					_stereoBuffer[i*2+1] =  (short) boundToShort(
+						Math.sin(powerMutiplier * _powerFrequencyPos++) * (Short.MAX_VALUE/3));
+				}
 			}
 
 			// To prevent eventual overflows.
@@ -341,7 +344,7 @@ public class AudioReceiver {
 			// manchester encoding.
 			// Check if the derivative from this point to the last or this point
 			// to the second last spikes high enough to register.
-		/*	if (Math.abs(inSample - previousInSample) > 15000 ||
+			/*if (Math.abs(inSample - previousInSample) > 15000 ||
 				(Math.abs(inSample - secondPreviousInSample)/1) > 15000) {
 
 				if (inSample > previousInSample &&
@@ -362,7 +365,7 @@ public class AudioReceiver {
 			}*/
 
 			// settings that work better on the htc one BEATS BY DR DRE
-			if (Math.abs(inSample - previousInSample) > 30001 ||
+			if (Math.abs(inSample - previousInSample) > 30000 ||
 					(Math.abs(inSample - secondPreviousInSample)/1) > 30000) {
 
 				if (inSample > previousInSample &&

@@ -105,7 +105,7 @@ public class Packet {
 		// Check checksum
 		if (_calculateChecksum() == _buf[numBytes-1]) {
 
-System.out.println("pkt checksum passed");
+//System.out.println("pkt checksum passed");
 
 // Print the received packet
 System.out.println("PACKET");
@@ -127,6 +127,7 @@ for (int i=0; i<numBytes; i++) {
 	System.out.print("0x" + Integer.toHexString(_buf[i]) + " ");
 }
 System.out.println();
+System.out.println("calc checksum: " + Integer.toHexString(_calculateChecksum()));
 
 			return false;
 		}

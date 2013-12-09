@@ -20,8 +20,7 @@ Packet Type IDs:
 5: reserved.
 6: reserved
 7: reserved
-8-11, 13-15: application specific.
-12: INVALID (conflicts with start byte)
+8-15: application specific.
 
 
 */
