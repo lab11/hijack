@@ -18,8 +18,9 @@
 package umich.hijack.core;
 
 import java.util.ArrayList;
+import java.util.Queue;
 
-public class PacketDispatch implements PktRecvCb, PktSentCb {
+public class PacketDispatch implements PktTransmitter, PktRecvCb, PktSentCb {
 
 	/////////////////////
 	// Constants
@@ -47,9 +48,13 @@ public class PacketDispatch implements PktRecvCb, PktSentCb {
 	// a sequence number
 	private int _sequenceNumber = 1;
 
-	// Keep track of incoming packets that need an ack.
-	// This maps sequence numbers to packets
-	private HashMap<int, Packet> _activePackets;
+	// Keep track of incoming packets. They are kept in a queue so that they
+	// go out in order. The head of the queue is transmitted first. If that
+	// packet needs an ack, it stays in the queue (and blocks subsequent
+	// packets) until an ack is received. Packets that do not need acks
+	// are transmitted and removed immediately. All packets (ack requested
+	// or not) queue so that they go out in order.
+	private Queue<Packet> packets;
 
 
 	// Init
@@ -88,11 +93,32 @@ public class PacketDispatch implements PktRecvCb, PktSentCb {
 	/////////////////////
 
 	// Transmit a packet
+	@Override
 	public void sendPacket (Packet p) {
 		p.setSequenceNumber(_sequenceNumber++);
+		packets.add(p);
+		_transmit();
+	}
 
+	// Take the top of the queue and transmit
+	private void _transmit () {
+		while (true) {
+			Packet p = packets.peek();
 
-		_pktTx.sendPacket(p);
+			if (p == null) {
+				// No packet to send
+				break;
+			}
+
+			if (p.ackRequested == false) {
+				_pktTx.sendPacket(p);
+				packets.remove();
+			} else {
+				_pktTx.sendPacket(p);
+				// TODO: set timer to retransmit this packet
+				break;
+			}
+		}
 	}
 
 
@@ -106,22 +132,24 @@ public class PacketDispatch implements PktRecvCb, PktSentCb {
 		// layer.
 		if (p.ackRequested) {
 			Packet ack = new Packet();
-			ack.length = 1;
+			ack.length = 0;
 			ack.ackRequested = false;
 			ack.powerDown = false;
 			ack.sentCount = 0;
-			ack.data[0] = 0xBB;
 			_pktTx.sendPacket(ack);
 		}
 
-		// Check if we got an ack, and if so match it to a packet we sent
-		// and remove that packet from the "needs an ack" list
-		if (p.typeId == PacketType.ACK) {
+		// TODO duplicate detection
 
+		// Check if we got an ack, and if so remove whichever packet we
+		// were waiting on an ack for and then transmit the next packet
+		if (p.typeId == PacketType.ACK) {
+			packets.remove();
+			_transmit();
 		}
 
 		// Pass packet to all waiting listeners
-		for (PktRecvCb l : _recvListeners.get(p.typeId)) {
+		for (PktRecvCb l : _recvListeners.get(p.typeId.ordinal())) {
 			l.recvPacket(p);
 		}
 	}

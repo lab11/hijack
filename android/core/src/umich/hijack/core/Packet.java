@@ -2,8 +2,6 @@ package umich.hijack.core;
 
 import java.util.Arrays;
 
-// A class object for a Jackit packet.
-
 public class Packet {
 
 	public int length;           // Length of the data payload
@@ -15,7 +13,7 @@ public class Packet {
 	                             // transmitted.
 	public int sentCount;        // The number of times this packet has been
 	                             // sent.
-	public int typeId;           // The ID of the functional use of the packet
+	public PacketType typeId;    // The ID of the functional use of the packet
 	public int[] data;           // The packet payload
 
 	// The seq no keeps track of this packet so we can check for duplicates
@@ -31,6 +29,7 @@ public class Packet {
 
 
 	private final static int MAX_PACKET_LEN = 256;
+	private final static int MIN_PACKET_LEN = 2;
 
 	public final static int PKT_TYPE_OFFSET = 0;
 	public final static int PKT_TYPE_MASK = 0xF;
@@ -40,6 +39,11 @@ public class Packet {
 	public final static int PKT_ACKREQ_MASK = 0x1 << 6;
 	public final static int PKT_POWERDOWN_OFFSET = 7;
 	public final static int PKT_POWERDOWN_MASK = 0x1 << 7;
+
+	public final static int HEADER_LEN = 2;
+	public final static int CHECKSUM_LEN = 1;
+	public final static int DISPATCH_BYTE_IDX = 0;
+	public final static int SEQ_NO_IDX = 1;
 
 	public Packet () {
 		data = new int[MAX_PACKET_LEN];
@@ -87,7 +91,7 @@ public class Packet {
 	public boolean processReceivedPacket () {
 		int numBytes = _bufIdx / 8; // how many bytes we received in the last packet
 
-		if (numBytes < 2) {
+		if (numBytes < MIN_PACKET_LEN) {
 			// This is an invalid packet.
 			// Need to get at least the header and checksum bytes
 			return false;
@@ -97,21 +101,29 @@ public class Packet {
 		}
 
 		// Disect header
-		powerDown    = ((_buf[0] & PKT_POWERDOWN_MASK) >> PKT_POWERDOWN_OFFSET) == 1;
-		ackRequested = ((_buf[0] & PKT_ACKREQ_MASK) >> PKT_ACKREQ_OFFSET) == 1;
-		sentCount    = ((_buf[0] & PKT_RETRIES_MASK) >> PKT_RETRIES_OFFSET) + 1;
-		typeId       = (_buf[0] & PKT_TYPE_MASK);
+		powerDown    = ((_buf[DISPATCH_BYTE_IDX] & PKT_POWERDOWN_MASK) >> PKT_POWERDOWN_OFFSET) == 1;
+		ackRequested = ((_buf[DISPATCH_BYTE_IDX] & PKT_ACKREQ_MASK) >> PKT_ACKREQ_OFFSET) == 1;
+		sentCount    = ((_buf[DISPATCH_BYTE_IDX] & PKT_RETRIES_MASK) >> PKT_RETRIES_OFFSET) + 1;
+		typeId       = PacketType.values()[(_buf[DISPATCH_BYTE_IDX] & PKT_TYPE_MASK)];
 
-		// Set length
-		length = numBytes - 2;
+		if (typeId == PacketType.ACK) {
+			// Ack packets are just a header byte and a checksum
+			length = 0;
+		} else {
+			// Set seq no
+			_seqNo = _buf[SEQ_NO_IDX];
 
-		// Copy data
-		for (int i=1; i<length+1; i++) {
-			data[i-1] = _buf[i];
+			// Set length
+			length = numBytes - HEADER_LEN - CHECKSUM_LEN;
+
+			// Copy data
+			for (int i=0; i<length; i++) {
+				data[i] = _buf[i+HEADER_LEN];
+			}
 		}
 
 		// Check checksum
-		if (_calculateChecksum() == _buf[numBytes-1]) {
+		if (_calculateChecksum() == _buf[numBytes-CHECKSUM_LEN]) {
 
 //System.out.println("pkt checksum passed");
 
@@ -145,22 +157,21 @@ System.out.println("calc checksum: " + Integer.toHexString(_calculateChecksum())
 	// can be transmitted to the peripheral.
 	public void compressToBuffer () {
 
-		powerDown    = ((_buf[0] & PKT_POWERDOWN_MASK) >> PKT_POWERDOWN_OFFSET) == 1;
-		ackRequested = ((_buf[0] & PKT_ACKREQ_MASK) >> PKT_ACKREQ_OFFSET) == 1;
-		sentCount    = ((_buf[0] & PKT_RETRIES_MASK) >> PKT_RETRIES_OFFSET) + 1;
-		typeId       = (_buf[0] & PKT_TYPE_MASK);
+		_buf[DISPATCH_BYTE_IDX] = 0;
+		_buf[DISPATCH_BYTE_IDX] |= (((powerDown)?1:0 << PKT_POWERDOWN_OFFSET) & PKT_POWERDOWN_MASK);
+		_buf[DISPATCH_BYTE_IDX] |= (((ackRequested)?1:0 << PKT_ACKREQ_OFFSET) & PKT_ACKREQ_MASK);
+		_buf[DISPATCH_BYTE_IDX] |= ((sentCount << PKT_RETRIES_OFFSET) & PKT_RETRIES_MASK);
+		_buf[DISPATCH_BYTE_IDX] |= (typeId.ordinal() & PKT_TYPE_MASK);
 
-		_buf[0] = 0;
-		_buf[0] |= (((powerDown)?1:0 << PKT_POWERDOWN_OFFSET) & PKT_POWERDOWN_MASK);
-		_buf[0] |= (((ackRequested)?1:0 << PKT_ACKREQ_OFFSET) & PKT_ACKREQ_MASK);
-		_buf[0] |= ((sentCount << PKT_RETRIES_OFFSET) & PKT_RETRIES_MASK);
-		_buf[0] |= (typeId & PKT_TYPE_MASK);
-
-		for (int i=0; i<length; i++) {
-			_buf[i+1] = data[i];
+		if (typeId != PacketType.ACK) {
+			_buf[SEQ_NO_IDX] = _seqNo;
 		}
 
-		_buf[length+1] = _calculateChecksum();
+		for (int i=0; i<length; i++) {
+			_buf[i+HEADER_LEN] = data[i];
+		}
+
+		_buf[length+HEADER_LEN] = _calculateChecksum();
 
 		_bufIdx = 0;
 	}
@@ -185,7 +196,7 @@ System.out.println("calc checksum: " + Integer.toHexString(_calculateChecksum())
 	private int _calculateChecksum () {
 		// Calculate checksum and copy data
 		int sum = 0;
-		for (int i=0; i<length+1; i++) {
+		for (int i=0; i<length+HEADER_LEN; i++) {
 			sum += _buf[i];
 		}
 		return sum & 0xFF;

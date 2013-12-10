@@ -1,9 +1,12 @@
 package umich.hijack.core;
 
 public enum PacketType {
-	ACK = 1,    // Ack for the last packet sent
-	BOOTED = 3, // Message signaling the device powered on from reset
-	RESUMED = 4 // Message signaling the device woke up from sleep
+	INVALID,
+	GLOBAL,
+	ACK,    // Ack for the last packet sent
+	BOOTED, // Message signaling the device powered on from reset
+	RESUMED, // Message signaling the device woke up from sleep
+	HIJACKIO
 }
 
 
