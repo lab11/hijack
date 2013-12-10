@@ -21,15 +21,15 @@ import java.util.ArrayList;
 
 public class PacketDispatch implements PktRecvCb, PktSentCb {
 
-	/////////////////
+	/////////////////////
 	// Constants
-	/////////////////
+	/////////////////////
 
 	private final static int MAX_PACKET_TYPES = 16;
 
-	//////////////////
+	/////////////////////
 	// Callbacks
-	//////////////////
+	/////////////////////
 
 	// List of packet callback functions that are waiting for packets of
 	// various types to come in.
@@ -42,6 +42,14 @@ public class PacketDispatch implements PktRecvCb, PktSentCb {
 
 	// Object that can actually transmit packets
 	private PktTransmitter _pktTx;
+
+	// Keep track of the global sequence number so that all new packets have
+	// a sequence number
+	private int _sequenceNumber = 1;
+
+	// Keep track of incoming packets that need an ack.
+	// This maps sequence numbers to packets
+	private HashMap<int, Packet> _activePackets;
 
 
 	// Init
@@ -65,10 +73,11 @@ public class PacketDispatch implements PktRecvCb, PktSentCb {
 	// Register a callback handler for a particular packet type. Each packet
 	// type can have multiple handlers in case multiple services want to know
 	// about a given packet type.
-	public void registerIncomingPacketListener(PktRecvCb listener, int packetTypeID) {
+	public void registerIncomingPacketListener(PktRecvCb listener,
+	                                           int packetTypeID) {
 		if (packetTypeID < 0 ||  packetTypeID > MAX_PACKET_TYPES) {
 			// throw an exception?
-			System.out.println("Registering incoming listener: Bad packet type ID.");
+			System.out.println("Registering listener: Bad packet type ID.");
 			return;
 		}
 		_recvListeners.get(packetTypeID).add(listener);
@@ -80,6 +89,9 @@ public class PacketDispatch implements PktRecvCb, PktSentCb {
 
 	// Transmit a packet
 	public void sendPacket (Packet p) {
+		p.setSequenceNumber(_sequenceNumber++);
+
+
 		_pktTx.sendPacket(p);
 	}
 
@@ -90,6 +102,8 @@ public class PacketDispatch implements PktRecvCb, PktSentCb {
 	@Override
 	public void recvPacket (Packet p) {
 
+		// Check if the packet needs an ack, and if so send it to the lower
+		// layer.
 		if (p.ackRequested) {
 			Packet ack = new Packet();
 			ack.length = 1;
@@ -98,6 +112,12 @@ public class PacketDispatch implements PktRecvCb, PktSentCb {
 			ack.sentCount = 0;
 			ack.data[0] = 0xBB;
 			_pktTx.sendPacket(ack);
+		}
+
+		// Check if we got an ack, and if so match it to a packet we sent
+		// and remove that packet from the "needs an ack" list
+		if (p.typeId == PacketType.ACK) {
+
 		}
 
 		// Pass packet to all waiting listeners

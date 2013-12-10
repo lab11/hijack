@@ -18,6 +18,10 @@ public class Packet {
 	public int typeId;           // The ID of the functional use of the packet
 	public int[] data;           // The packet payload
 
+	// The seq no keeps track of this packet so we can check for duplicates
+	// and for which packet is being acked
+	private int _seqNo;
+
 	// Storage for a packet in raw buffer form. This is used when receiving
 	// a packet (each bit is stored) and when transmitting a packet (the buffer
 	// is filled from the fields in the packet).
@@ -41,6 +45,10 @@ public class Packet {
 		data = new int[MAX_PACKET_LEN];
 		_buf = new int[MAX_PACKET_LEN+2];
 		reset();
+	}
+
+	public void setSequenceNumber (int seqno) {
+		_seqNo = seqno;
 	}
 
 
