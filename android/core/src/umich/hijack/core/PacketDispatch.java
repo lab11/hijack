@@ -79,13 +79,8 @@ public class PacketDispatch implements PktTransmitter, PktRecvCb, PktSentCb {
 	// type can have multiple handlers in case multiple services want to know
 	// about a given packet type.
 	public void registerIncomingPacketListener(PktRecvCb listener,
-	                                           int packetTypeID) {
-		if (packetTypeID < 0 ||  packetTypeID > MAX_PACKET_TYPES) {
-			// throw an exception?
-			System.out.println("Registering listener: Bad packet type ID.");
-			return;
-		}
-		_recvListeners.get(packetTypeID).add(listener);
+	                                           PacketType packetTypeID) {
+		_recvListeners.get(packetTypeID.ordinal()).add(listener);
 	}
 
 	/////////////////////

@@ -9,6 +9,7 @@ import java.util.Date;
 
 import umich.hijack.core.Packet;
 import umich.hijack.core.PacketDispatch;
+import umich.hijack.core.PacketType;
 import umich.hijack.core.PktRecvCb;
 import umich.hijack.core.SerialDecoder;
 import android.app.Activity;
@@ -50,9 +51,9 @@ public class MainActivity extends Activity {
 		_serialDecoder.setPowerFreq(12000);
 
 		_dispatcher.registerPacketTransmitter(_serialDecoder);
-		_dispatcher.registerIncomingPacketListener(bootedPkt, 3);
-		_dispatcher.registerIncomingPacketListener(resumedPkt, 4);
-		_dispatcher.registerIncomingPacketListener(powerdownPkt, 8);
+		_dispatcher.registerIncomingPacketListener(bootedPkt, PacketType.BOOTED);
+		_dispatcher.registerIncomingPacketListener(resumedPkt, PacketType.RESUMED);
+		_dispatcher.registerIncomingPacketListener(powerdownPkt, PacketType.POWERDOWN);
 
 		//_dispatcher.registerOutgoingByteListener(_outgoingByteListener);
 
