@@ -1,0 +1,39 @@
+Partlist exported from /Users/thomas/Documents/eagle/HIJACK/HIJACK_LQPF_C/HIJACK_LQPF_C.sch at 10/12/10 11:55 PM
+
+Part Value              Device                         Package                     Description               
+C1   0.1 uF             CAP0603-CAP                    0603-CAP                    Capacitor                 
+C2   4.7nF              CAP0603-CAP                    0603-CAP                    Capacitor                 
+C3   0.1uF              CAP0603-CAP                    0603-CAP                    Capacitor                 
+C4   1uF                CAP0603-CAP                    0603-CAP                    Capacitor                 
+C5   1uF                C0603                          C0603                                                 
+C6   10uF               C0603                          C0603                                                 
+C7   CP6032             CP6032                         CT6032                                                
+C8   2.2u               C0603                          C0603                                                 
+C9   10uF               CAP0603-CAP                    0603-CAP                    Capacitor                 
+C10  10u                C-EUC0603                      C0603                       CAPACITOR, European symbol
+D1   DIODE              DIODE                          MINIMELF                                              
+D2                      LED0603                        LED-0603                    LEDs                      
+J1   3.5JACK4CONN       3.5JACK4CONNSUNSTONE_QUICKTURN PLUGBOARDCONNECTOR_SUNSTONE                           
+J2   HEADER10POS        HEADER10POS                    10PIN2MMHEADER              Fits 3M 950510-6102-AR    
+J3   HEADER10POS        HEADER10POS                    10PIN2MMHEADER              Fits 3M 950510-6102-AR    
+J4   HEADER10POS        HEADER10POS                    10PIN2MMHEADER              Fits 3M 950510-6102-AR    
+Q1                      NMOSSOT23                      SOT-23                      MOS FET                   
+Q2                      NMOSSOT23                      SOT-23                      MOS FET                   
+Q3                      PMOSSOT23                      SOT-23                      MOS FET                   
+Q4                      PMOSSOT23                      SOT-23                      MOS FET                   
+R1   100k               RESISTOR0603-RES               0603-RES                    Resistor                  
+R2   100k               RESISTOR0603-RES               0603-RES                    Resistor                  
+R3   10k                RESISTOR0603-RES               0603-RES                    Resistor                  
+R4   100k 0.1%          RESISTOR0603-RES               0603-RES                    Resistor                  
+R5   5.1M               RESISTOR0603-RES               0603-RES                    Resistor                  
+R6   100k               RESISTOR0603-RES               0603-RES                    Resistor                  
+R8   698                R-US_R0603                     R0603                       RESISTOR, American symbol 
+R9   1k                 RESISTOR0603-RES               0603-RES                    Resistor                  
+R10  3M                 RESISTOR0603-RES               0603-RES                    Resistor                  
+R11  1M                 RESISTOR0603-RES               0603-RES                    Resistor                  
+R12  3M                 RESISTOR0603-RES               0603-RES                    Resistor                  
+R13  3M                 RESISTOR0603-RES               0603-RES                    Resistor                  
+T1   LPR6235            LPR6235                        LPR6235                                               
+U1   MSP430F1611IPM     MSP430F1611IPM                 PM/PAG64                                              
+U3   MIC5231            MIC5231                        SOT23-5                                               
+Y1   FC-135_32.768KA-A3 FC-135_32.768KA-A3             FC-135                                                
