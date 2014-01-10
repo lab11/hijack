@@ -1,3 +1,13 @@
+*.bot
+*.bsk
+*.bsp
+*.drd
+*.oln
+*.slk
+*.smb
+*.smt
+*.top
+*.tsp
 *.DIM
 *.GBL
 *.GBO
